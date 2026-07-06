@@ -61,7 +61,7 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, SEARCH = "";
+let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
 const YEAR = 2026;
 
 (async function init() {
@@ -97,12 +97,17 @@ async function loadData() {
   (progress || []).forEach(p => {
     if (!LATEST_PROGRESS[p.goal_metric_id]) LATEST_PROGRESS[p.goal_metric_id] = p;
   });
+
+  const { data: periodTargets } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds);
+  ALL_PERIOD_TARGETS = {};
+  (periodTargets || []).forEach(pt => { ALL_PERIOD_TARGETS[pt.goal_metric_id + "|" + pt.period] = pt.target_value; });
 }
 
 function metricRate(metric) {
   const p = LATEST_PROGRESS[metric.id];
   if (!p) return null;
-  return calcAchievementRate(metric, p.actual_value, p.milestone_achieved);
+  const override = ALL_PERIOD_TARGETS[metric.id + "|" + p.period];
+  return calcAchievementRate(metric, p.actual_value, p.milestone_achieved, override);
 }
 function goalMetrics(goal) { return ALL_METRICS.filter(m => m.goal_id === goal.id); }
 function goalRate(goal) {

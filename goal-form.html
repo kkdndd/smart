@@ -70,25 +70,37 @@
 </div>
 
 <template id="metric-row-tpl">
-  <div class="metric-row grid grid-cols-1 sm:grid-cols-6 gap-2 border border-slate-200 rounded p-3">
-    <input class="m-name sm:col-span-2 border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="지표명 (예: 연단체 수)" />
-    <select class="m-type border border-slate-300 rounded px-2 py-1.5 text-sm">
-      <option value="increasing">증가형 (정량)</option>
-      <option value="decreasing">감소형 · 원가율 등 (정량)</option>
-      <option value="milestone">마일스톤 · 완료여부 (정성)</option>
-      <option value="qualitative">진척도(%) 자가평가 (정성)</option>
-    </select>
-    <input class="m-unit border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="단위(팀,명,%,건 등)" />
-    <div class="m-numeric-fields contents">
-      <input class="m-baseline border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="기준값" />
-      <input class="m-target border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="목표값" />
+  <div class="metric-row border border-slate-200 rounded p-3 space-y-2">
+    <div class="grid grid-cols-1 sm:grid-cols-6 gap-2">
+      <input class="m-name sm:col-span-2 border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="지표명 (예: 연단체 수)" />
+      <select class="m-type border border-slate-300 rounded px-2 py-1.5 text-sm">
+        <option value="increasing">증가형 (정량)</option>
+        <option value="decreasing">감소형 · 원가율 등 (정량)</option>
+        <option value="milestone">마일스톤 · 완료여부 (정성)</option>
+        <option value="qualitative">진척도(%) 자가평가 (정성)</option>
+      </select>
+      <input class="m-unit border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="단위(팀,명,%,건 등)" />
+      <select class="m-period border border-slate-300 rounded px-2 py-1.5 text-sm">
+        <option value="monthly">월별 입력</option>
+        <option value="quarterly">분기별 입력</option>
+      </select>
+      <button type="button" class="m-remove text-xs text-red-500 underline justify-self-end sm:col-start-6">삭제</button>
     </div>
-    <p class="m-hint hidden sm:col-span-2 text-xs text-slate-400 self-center"></p>
-    <select class="m-period sm:col-start-1 border border-slate-300 rounded px-2 py-1.5 text-sm">
-      <option value="monthly">월별 입력</option>
-      <option value="quarterly">분기별 입력</option>
-    </select>
-    <button type="button" class="m-remove text-xs text-red-500 underline sm:col-start-6 justify-self-end">삭제</button>
+    <p class="m-hint hidden text-xs text-slate-400"></p>
+    <div class="m-numeric-fields space-y-2">
+      <input class="m-baseline w-full sm:w-40 border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="기준값" />
+      <div class="border border-slate-200 rounded p-2.5" style="background:var(--surface-hover)">
+        <p class="text-xs font-medium text-slate-600 mb-1.5">목표값 설정 (하나 이상 선택)</p>
+        <div class="flex flex-wrap gap-4 mb-2 text-xs text-slate-600">
+          <label class="flex items-center gap-1.5"><input type="checkbox" class="m-use-annual" /> 연간(최종) 목표값</label>
+          <label class="flex items-center gap-1.5"><input type="checkbox" class="m-use-period" /> 월별/분기별 목표값</label>
+        </div>
+        <div class="m-annual-wrap hidden mb-2">
+          <input class="m-target w-full sm:w-48 border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="연간 목표값" />
+        </div>
+        <div class="m-period-target-wrap hidden grid grid-cols-3 sm:grid-cols-4 gap-2"></div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -120,7 +132,18 @@ async function loadGoal(id) {
 
   const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", id);
   document.getElementById("metrics-root").innerHTML = "";
-  (metrics||[]).forEach(m => addMetricRow(m));
+
+  const metricIds = (metrics||[]).map(m => m.id);
+  let periodTargetsByMetric = {};
+  if (metricIds.length) {
+    const { data: pts } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds);
+    (pts||[]).forEach(p => {
+      if (!periodTargetsByMetric[p.goal_metric_id]) periodTargetsByMetric[p.goal_metric_id] = {};
+      periodTargetsByMetric[p.goal_metric_id][p.period] = p.target_value;
+    });
+  }
+
+  (metrics||[]).forEach(m => addMetricRow(m, periodTargetsByMetric[m.id]));
   if (metrics && metrics.length === 0) addMetricRow();
 }
 
@@ -135,7 +158,35 @@ function syncMetricRowType(row) {
   else if (type === "qualitative") hint.textContent = "기준값·목표값 없이, 매 기간 담당자가 진척도(0~100%)를 직접 입력합니다";
 }
 
-function addMetricRow(m) {
+// 기간(YYYY-MM 또는 YYYY-Qn)을 "N월"/"N분기" 형태로 보기 좋게 변환
+function periodLabel(period) {
+  const monthMatch = period.match(/-(\d{2})$/);
+  if (monthMatch) return `${parseInt(monthMatch[1], 10)}월`;
+  const qMatch = period.match(/-Q(\d)$/);
+  if (qMatch) return `${qMatch[1]}분기`;
+  return period;
+}
+
+function renderPeriodTargetInputs(row, existingMap) {
+  const periodType = row.querySelector(".m-period").value;
+  const periods = periodsForYear(2026, periodType);
+  const map = existingMap || {};
+  row.querySelector(".m-period-target-wrap").innerHTML = periods.map(p => `
+    <div>
+      <label class="block text-[10px] text-slate-400 mb-0.5">${periodLabel(p)}</label>
+      <input type="number" step="any" class="m-period-target-input w-full border border-slate-300 rounded px-1.5 py-1 text-xs" data-period="${p}" value="${map[p] ?? ''}" placeholder="-" />
+    </div>
+  `).join("");
+}
+
+function syncTargetModeVisibility(row) {
+  const useAnnual = row.querySelector(".m-use-annual").checked;
+  const usePeriod = row.querySelector(".m-use-period").checked;
+  row.querySelector(".m-annual-wrap").classList.toggle("hidden", !useAnnual);
+  row.querySelector(".m-period-target-wrap").classList.toggle("hidden", !usePeriod);
+}
+
+function addMetricRow(m, periodTargetsMap) {
   const tpl = document.getElementById("metric-row-tpl").content.cloneNode(true);
   const row = tpl.querySelector(".metric-row");
   if (m) {
@@ -146,11 +197,20 @@ function addMetricRow(m) {
     row.querySelector(".m-baseline").value = m.baseline_value ?? "";
     row.querySelector(".m-target").value = m.target_value ?? "";
     row.querySelector(".m-period").value = m.period_type || "monthly";
+    row.querySelector(".m-use-annual").checked = m.target_value !== null && m.target_value !== undefined;
+    row.querySelector(".m-use-period").checked = !!(periodTargetsMap && Object.keys(periodTargetsMap).length);
+  } else {
+    row.querySelector(".m-use-annual").checked = true;
   }
   row.querySelector(".m-remove").addEventListener("click", () => row.remove());
   row.querySelector(".m-type").addEventListener("change", () => syncMetricRowType(row));
+  row.querySelector(".m-period").addEventListener("change", () => renderPeriodTargetInputs(row, null));
+  row.querySelector(".m-use-annual").addEventListener("change", () => syncTargetModeVisibility(row));
+  row.querySelector(".m-use-period").addEventListener("change", () => syncTargetModeVisibility(row));
   document.getElementById("metrics-root").appendChild(row);
   syncMetricRowType(row);
+  renderPeriodTargetInputs(row, periodTargetsMap);
+  syncTargetModeVisibility(row);
 }
 
 document.getElementById("add-metric").addEventListener("click", () => addMetricRow());
@@ -193,18 +253,41 @@ async function saveGoal(mode) {
 
   // 지표 저장 (기존 삭제 후 재삽입 - 단순화)
   await sb.from("goal_metrics").delete().eq("goal_id", goalId);
-  const rows = [...document.querySelectorAll(".metric-row")].map(row => ({
-    goal_id: goalId,
-    metric_name: row.querySelector(".m-name").value || "미지정 지표",
-    metric_type: row.querySelector(".m-type").value,
-    unit: row.querySelector(".m-unit").value,
-    baseline_value: row.querySelector(".m-baseline").value || null,
-    target_value: row.querySelector(".m-target").value || null,
-    period_type: row.querySelector(".m-period").value
-  }));
-  if (rows.length) {
-    const { error: mErr } = await sb.from("goal_metrics").insert(rows);
+  const metricRowEls = [...document.querySelectorAll(".metric-row")];
+  for (const row of metricRowEls) {
+    const type = row.querySelector(".m-type").value;
+    const isNumeric = (type === "increasing" || type === "decreasing");
+    const useAnnual = row.querySelector(".m-use-annual").checked;
+    const usePeriod = row.querySelector(".m-use-period").checked;
+    const name = row.querySelector(".m-name").value || "미지정 지표";
+
+    if (isNumeric && !useAnnual && !usePeriod) {
+      errEl.textContent = `"${name}" 지표는 목표값 설정 방식(연간 목표값 / 월별·분기별 목표값)을 하나 이상 선택해야 합니다.`;
+      errEl.classList.remove("hidden");
+      return;
+    }
+
+    const metricPayload = {
+      goal_id: goalId,
+      metric_name: name,
+      metric_type: type,
+      unit: row.querySelector(".m-unit").value,
+      baseline_value: row.querySelector(".m-baseline").value || null,
+      target_value: (isNumeric && useAnnual) ? (row.querySelector(".m-target").value || null) : null,
+      period_type: row.querySelector(".m-period").value
+    };
+    const { data: newMetric, error: mErr } = await sb.from("goal_metrics").insert(metricPayload).select().single();
     if (mErr) { errEl.textContent = "지표 저장 실패: " + mErr.message; errEl.classList.remove("hidden"); return; }
+
+    if (isNumeric && usePeriod) {
+      const periodRows = [...row.querySelectorAll(".m-period-target-input")]
+        .map(inp => ({ goal_metric_id: newMetric.id, period: inp.dataset.period, target_value: inp.value }))
+        .filter(p => p.target_value !== "" && p.target_value !== null);
+      if (periodRows.length) {
+        const { error: ptErr } = await sb.from("goal_period_targets").insert(periodRows);
+        if (ptErr) { errEl.textContent = "기간별 목표값 저장 실패: " + ptErr.message; errEl.classList.remove("hidden"); return; }
+      }
+    }
   }
 
   if (mode === "submit") {

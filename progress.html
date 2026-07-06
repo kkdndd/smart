@@ -107,20 +107,32 @@ async function loadMetricsForGoal(goalId) {
   const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", goalId);
   const metricIds = (metrics||[]).map(m=>m.id);
   let progressByKey = {};
+  let periodTargetsByKey = {};
+  let metricsWithPeriodTargets = new Set();
   if (metricIds.length) {
     const { data: progress } = await sb.from("progress_entries").select("*, submitter:submitted_by(name,email)").in("goal_metric_id", metricIds);
     (progress||[]).forEach(p => progressByKey[p.goal_metric_id + "|" + p.period] = p);
+    const { data: periodTargets } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds);
+    (periodTargets||[]).forEach(pt => {
+      periodTargetsByKey[pt.goal_metric_id + "|" + pt.period] = pt.target_value;
+      metricsWithPeriodTargets.add(pt.goal_metric_id);
+    });
   }
 
   document.getElementById("metrics-container").innerHTML = (metrics||[]).map(m => {
     const periods = periodsForYear(YEAR, m.period_type);
+    const isMilestone = m.metric_type === "milestone";
+    const isQualitative = m.metric_type === "qualitative";
+    const isNumeric = !isMilestone && !isQualitative;
     const rows = periods.map(period => {
       const key = m.id + "|" + period;
       const p = progressByKey[key];
-      const isMilestone = m.metric_type === "milestone";
-      const isQualitative = m.metric_type === "qualitative";
+      const periodTarget = periodTargetsByKey[key];
+      const effTarget = periodTarget !== undefined ? periodTarget : m.target_value;
+      const targetCell = isNumeric ? (effTarget !== null && effTarget !== undefined ? `${effTarget}${m.unit||''}` : '-') : '-';
       return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
         <td class="py-1.5 px-2 text-xs text-slate-500 w-[104px] whitespace-nowrap">${period}</td>
+        <td class="py-1.5 px-2 text-xs text-slate-500 whitespace-nowrap">${targetCell}</td>
         <td class="py-1.5 px-2">
           ${isMilestone
             ? `<select class="val-milestone border border-slate-300 rounded px-2 py-1 text-sm" ${canEdit?'':'disabled'}>
@@ -141,16 +153,22 @@ async function loadMetricsForGoal(goalId) {
         <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-[#3a4356] text-white rounded px-2 py-1">저장</button>`:''}</td>
       </tr>`;
     }).join("");
-    const goalHint = m.metric_type === "milestone" ? "완료 여부로 관리"
-      : m.metric_type === "qualitative" ? "진척도(%) 자가평가로 관리"
-      : `목표 ${m.target_value ?? '-'} ${m.unit||''}`;
+    let goalHint;
+    if (isMilestone) goalHint = "완료 여부로 관리";
+    else if (isQualitative) goalHint = "진척도(%) 자가평가로 관리";
+    else {
+      const parts = [];
+      if (m.target_value !== null && m.target_value !== undefined) parts.push(`연간목표 ${m.target_value}${m.unit||''}`);
+      if (metricsWithPeriodTargets.has(m.id)) parts.push("기간별 목표값 설정됨");
+      goalHint = parts.length ? parts.join(" · ") : `목표값 미설정 ${m.unit||''}`;
+    }
     return `<div class="card p-4 metric-card" data-metric="${m.id}">
       <div class="flex items-center justify-between mb-2">
         <h3 class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span></h3>
         ${canEdit ? `<button class="bulk-save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1.5 hover:bg-[#2c3342] whitespace-nowrap">일괄저장</button>` : ''}
       </div>
       <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1 w-[104px]">기간</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
+        <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1 w-[104px]">기간</th><th class="px-2 py-1">목표</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>`;

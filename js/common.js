@@ -62,7 +62,8 @@ async function signOutAndRedirect() {
 }
 
 // 지표 유형/목표값/실적값을 바탕으로 달성률(%) 계산
-function calcAchievementRate(metric, latestActual, milestoneAchieved) {
+// periodTargetOverride: 해당 기간(월/분기)에 설정된 목표값이 있으면 연간 목표값 대신 사용
+function calcAchievementRate(metric, latestActual, milestoneAchieved, periodTargetOverride) {
   if (metric.metric_type === "milestone") {
     return milestoneAchieved ? 100 : 0;
   }
@@ -72,7 +73,8 @@ function calcAchievementRate(metric, latestActual, milestoneAchieved) {
     if (latestActual === null || latestActual === undefined || isNaN(v)) return null;
     return Math.max(0, Math.min(100, Math.round(v * 10) / 10));
   }
-  const target = Number(metric.target_value);
+  const hasOverride = periodTargetOverride !== undefined && periodTargetOverride !== null && periodTargetOverride !== "";
+  const target = Number(hasOverride ? periodTargetOverride : metric.target_value);
   const baseline = Number(metric.baseline_value);
   const actual = Number(latestActual);
   if (isNaN(target) || target === 0 || latestActual === null || latestActual === undefined || isNaN(actual)) {
