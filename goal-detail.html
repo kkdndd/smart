@@ -96,20 +96,31 @@ async function loadMetrics() {
   if (!metrics || metrics.length === 0) { root.innerHTML = `<p class="text-sm text-slate-400">등록된 지표가 없습니다.</p>`; return; }
 
   const metricIds = metrics.map(m => m.id);
-  const { data: progress } = await sb.from("progress_entries").select("*").in("goal_metric_id", metricIds).order("period", { ascending: false });
+  const { data: progress } = await sb.from("progress_entries").select("*").in("goal_metric_id", metricIds).order("period", { ascending: true });
 
   root.innerHTML = metrics.map(m => {
-    const entries = (progress||[]).filter(p => p.goal_metric_id === m.id);
-    const latest = entries[0];
+    const entriesAsc = (progress||[]).filter(p => p.goal_metric_id === m.id);
+    const latest = entriesAsc[entriesAsc.length - 1];
     const rate = latest ? calcAchievementRate(m, latest.actual_value, latest.milestone_achieved) : null;
-    const history = entries.slice(0,6).map(p => `<span class="inline-block mr-2 mb-1 px-2 py-0.5 bg-slate-100 rounded text-xs">${p.period}: ${p.milestone_achieved!==null ? (p.milestone_achieved?'완료':'미완료') : (p.actual_value ?? '-')}</span>`).join("");
+    const history = entriesAsc.map(p => `
+      <div class="px-3 py-1.5 border-b border-slate-100 last:border-b-0">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-slate-500">${p.period}</span>
+          <span class="text-sm font-medium text-slate-800">${p.milestone_achieved!==null ? (p.milestone_achieved?'완료':'미완료') : (p.actual_value ?? '-')}</span>
+        </div>
+        ${p.note ? `<p class="text-xs text-slate-500 mt-0.5">${nl2br(p.note)}</p>` : ''}
+      </div>`).join("");
     return `<div class="border border-slate-200 rounded p-3">
       <div class="flex items-center justify-between mb-1">
         <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${METRIC_TYPE_LABEL[m.metric_type]} · ${m.period_type==='monthly'?'월별':'분기별'})</span></span>
         <span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(rate)}">${rate===null?'실적없음':rate+'%'}</span>
       </div>
-      <p class="text-xs text-slate-500 mb-2">기준값 ${m.baseline_value ?? '-'} → 목표값 ${m.target_value ?? '-'} ${m.unit || ''}</p>
-      <div>${history || '<span class="text-xs text-slate-400">입력된 실적이 없습니다</span>'}</div>
+      <p class="text-xs text-slate-500 mb-2">${
+        m.metric_type === 'milestone' ? '완료 여부로 관리되는 정성 지표입니다'
+        : m.metric_type === 'qualitative' ? '담당자가 매 기간 진척도(%)를 자가평가하는 정성 지표입니다'
+        : `기준값 ${m.baseline_value ?? '-'} → 목표값 ${m.target_value ?? '-'} ${m.unit || ''}`
+      }</p>
+      <div class="rounded border border-slate-100 divide-y divide-slate-100">${history || '<p class="text-xs text-slate-400 px-3 py-2">입력된 실적이 없습니다</p>'}</div>
     </div>`;
   }).join("");
 }

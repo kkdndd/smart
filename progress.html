@@ -13,9 +13,12 @@
 <div id="nav-root"></div>
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
   <h1 class="text-lg font-bold text-slate-800">진행실적 입력</h1>
-  <div class="card p-4">
-    <label class="block text-sm text-slate-600 mb-1">목표 선택</label>
-    <select id="goal-select" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></select>
+  <div class="card p-2">
+    <div class="flex items-center justify-between px-3 py-2">
+      <label class="text-sm text-slate-600">목표를 선택하면 아래에 실적 입력란이 나타납니다</label>
+      <input id="goal-filter" type="text" placeholder="검색" class="text-xs border border-slate-300 rounded px-2 py-1 w-40" />
+    </div>
+    <div id="goal-list" class="divide-y divide-slate-100 max-h-72 overflow-y-auto"></div>
   </div>
   <div id="metrics-container" class="space-y-4"></div>
 </div>
@@ -23,7 +26,7 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, YEAR = 2026;
+let PROFILE, YEAR = 2026, ALL_GOALS = [], SELECTED_GOAL_ID = null;
 const params = new URLSearchParams(location.search);
 
 (async function init() {
@@ -32,22 +35,40 @@ const params = new URLSearchParams(location.search);
   renderNav(PROFILE, "progress");
   await loadGoalOptions();
   const preselect = params.get("goal");
-  if (preselect) document.getElementById("goal-select").value = preselect;
-  if (document.getElementById("goal-select").value) await loadMetricsForGoal(document.getElementById("goal-select").value);
+  selectGoal(preselect && ALL_GOALS.some(g => g.id === preselect) ? preselect : (ALL_GOALS[0]?.id || null));
+  document.getElementById("goal-filter").addEventListener("input", renderGoalList);
 })();
 
-document.getElementById("goal-select").addEventListener("change", (e) => {
-  if (e.target.value) loadMetricsForGoal(e.target.value);
-  else document.getElementById("metrics-container").innerHTML = "";
-});
-
 async function loadGoalOptions() {
-  let q = sb.from("goals").select("id, strategy_name, seq_no, companies:company_id(name)").eq("year", YEAR).order("seq_no");
+  let q = sb.from("goals").select("id, strategy_name, seq_no, status, indicator_name, companies:company_id(name)").eq("year", YEAR).order("seq_no");
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   const { data } = await q;
-  const sel = document.getElementById("goal-select");
-  sel.innerHTML = `<option value="">-- 선택 --</option>` + (data||[]).map(g =>
-    `<option value="${g.id}">${escapeHtml(g.companies.name)} · ${g.seq_no ?? ''} ${escapeHtml(g.strategy_name)}</option>`).join("");
+  ALL_GOALS = data || [];
+  renderGoalList();
+}
+
+function renderGoalList() {
+  const filter = document.getElementById("goal-filter").value.trim().toLowerCase();
+  const filtered = ALL_GOALS.filter(g => !filter || (g.strategy_name + " " + (g.indicator_name||"") + " " + g.companies.name).toLowerCase().includes(filter));
+  document.getElementById("goal-list").innerHTML = filtered.map(g => `
+    <div data-id="${g.id}" class="goal-list-item flex items-center justify-between px-3 py-2 cursor-pointer text-sm ${g.id===SELECTED_GOAL_ID?'bg-[var(--accent-soft)]':'hover:bg-[var(--surface-hover)]'}">
+      <div class="min-w-0">
+        <span class="font-medium text-slate-800">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}</span>
+        <span class="text-xs text-slate-400 ml-1">${escapeHtml(g.indicator_name||'')}</span>
+      </div>
+      <span class="badge ${STATUS_BADGE_CLASS[g.status]} whitespace-nowrap">${STATUS_LABEL[g.status]}</span>
+    </div>`).join("") || `<p class="text-sm text-slate-400 px-3 py-4">해당하는 목표가 없습니다.</p>`;
+
+  document.querySelectorAll(".goal-list-item").forEach(el => {
+    el.addEventListener("click", () => selectGoal(el.dataset.id));
+  });
+}
+
+function selectGoal(goalId) {
+  SELECTED_GOAL_ID = goalId;
+  renderGoalList();
+  if (goalId) loadMetricsForGoal(goalId);
+  else document.getElementById("metrics-container").innerHTML = "";
 }
 
 async function loadMetricsForGoal(goalId) {
@@ -66,6 +87,7 @@ async function loadMetricsForGoal(goalId) {
       const key = m.id + "|" + period;
       const p = progressByKey[key];
       const isMilestone = m.metric_type === "milestone";
+      const isQualitative = m.metric_type === "qualitative";
       return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
         <td class="py-1.5 px-2 text-xs text-slate-500">${period}</td>
         <td class="py-1.5 px-2">
@@ -75,6 +97,11 @@ async function loadMetricsForGoal(goalId) {
                  <option value="true" ${p&&p.milestone_achieved===true?'selected':''}>완료</option>
                  <option value="false" ${p&&p.milestone_achieved===false?'selected':''}>미완료</option>
                </select>`
+            : isQualitative
+            ? `<div class="flex items-center gap-1">
+                 <input type="number" min="0" max="100" step="1" class="val-actual border border-slate-300 rounded px-2 py-1 text-sm w-20" placeholder="진척도" value="${p&&p.actual_value!==null?p.actual_value:''}" ${canEdit?'':'disabled'} />
+                 <span class="text-xs text-slate-400">%</span>
+               </div>`
             : `<input type="number" step="any" class="val-actual border border-slate-300 rounded px-2 py-1 text-sm w-28" value="${p&&p.actual_value!==null?p.actual_value:''}" ${canEdit?'':'disabled'} />`}
         </td>
         <td class="py-1.5 px-2"><input class="val-note border border-slate-300 rounded px-2 py-1 text-sm w-full" placeholder="메모" value="${p&&p.note?escapeHtml(p.note):''}" ${canEdit?'':'disabled'} /></td>
@@ -83,8 +110,11 @@ async function loadMetricsForGoal(goalId) {
         <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-[#3a4356] text-white rounded px-2 py-1">저장</button>`:''}</td>
       </tr>`;
     }).join("");
+    const goalHint = m.metric_type === "milestone" ? "완료 여부로 관리"
+      : m.metric_type === "qualitative" ? "진척도(%) 자가평가로 관리"
+      : `목표 ${m.target_value ?? '-'} ${m.unit||''}`;
     return `<div class="card p-4">
-      <h3 class="font-medium text-sm text-slate-800 mb-2">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(목표 ${m.target_value ?? '-'} ${m.unit||''})</span></h3>
+      <h3 class="font-medium text-sm text-slate-800 mb-2">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span></h3>
       <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1">기간</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
@@ -139,7 +169,7 @@ async function saveProgress(tr) {
   const { error } = await sb.from("progress_entries").upsert(payload, { onConflict: "goal_metric_id,period" });
   if (error) { alert("저장 실패: " + error.message); return; }
   alert("저장되었습니다.");
-  loadMetricsForGoal(document.getElementById("goal-select").value);
+  loadMetricsForGoal(SELECTED_GOAL_ID);
 }
 </script>
 </body>

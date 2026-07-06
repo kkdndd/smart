@@ -73,13 +73,17 @@
   <div class="metric-row grid grid-cols-1 sm:grid-cols-6 gap-2 border border-slate-200 rounded p-3">
     <input class="m-name sm:col-span-2 border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="지표명 (예: 연단체 수)" />
     <select class="m-type border border-slate-300 rounded px-2 py-1.5 text-sm">
-      <option value="increasing">증가형</option>
-      <option value="decreasing">감소형(원가율 등)</option>
-      <option value="milestone">마일스톤(완료여부)</option>
+      <option value="increasing">증가형 (정량)</option>
+      <option value="decreasing">감소형 · 원가율 등 (정량)</option>
+      <option value="milestone">마일스톤 · 완료여부 (정성)</option>
+      <option value="qualitative">진척도(%) 자가평가 (정성)</option>
     </select>
     <input class="m-unit border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="단위(팀,명,%,건 등)" />
-    <input class="m-baseline border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="기준값" />
-    <input class="m-target border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="목표값" />
+    <div class="m-numeric-fields contents">
+      <input class="m-baseline border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="기준값" />
+      <input class="m-target border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="목표값" />
+    </div>
+    <p class="m-hint hidden sm:col-span-2 text-xs text-slate-400 self-center"></p>
     <select class="m-period sm:col-start-1 border border-slate-300 rounded px-2 py-1.5 text-sm">
       <option value="monthly">월별 입력</option>
       <option value="quarterly">분기별 입력</option>
@@ -120,6 +124,17 @@ async function loadGoal(id) {
   if (metrics && metrics.length === 0) addMetricRow();
 }
 
+function syncMetricRowType(row) {
+  const type = row.querySelector(".m-type").value;
+  const numericFields = row.querySelector(".m-numeric-fields");
+  const hint = row.querySelector(".m-hint");
+  const isNonNumeric = (type === "milestone" || type === "qualitative");
+  numericFields.classList.toggle("hidden", isNonNumeric);
+  hint.classList.toggle("hidden", !isNonNumeric);
+  if (type === "milestone") hint.textContent = "매 기간마다 완료/미완료로만 입력합니다 (기준값·목표값 불필요)";
+  else if (type === "qualitative") hint.textContent = "기준값·목표값 없이, 매 기간 담당자가 진척도(0~100%)를 직접 입력합니다";
+}
+
 function addMetricRow(m) {
   const tpl = document.getElementById("metric-row-tpl").content.cloneNode(true);
   const row = tpl.querySelector(".metric-row");
@@ -133,7 +148,9 @@ function addMetricRow(m) {
     row.querySelector(".m-period").value = m.period_type || "monthly";
   }
   row.querySelector(".m-remove").addEventListener("click", () => row.remove());
+  row.querySelector(".m-type").addEventListener("change", () => syncMetricRowType(row));
   document.getElementById("metrics-root").appendChild(row);
+  syncMetricRowType(row);
 }
 
 document.getElementById("add-metric").addEventListener("click", () => addMetricRow());

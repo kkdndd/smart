@@ -19,9 +19,10 @@ const STATUS_BADGE_CLASS = {
 };
 
 const METRIC_TYPE_LABEL = {
-  increasing: "증가형",
-  decreasing: "감소형(원가율 등)",
-  milestone: "마일스톤(완료여부)"
+  increasing: "증가형 (정량)",
+  decreasing: "감소형 · 원가율 등 (정량)",
+  milestone: "마일스톤 · 완료여부 (정성)",
+  qualitative: "진척도(%) 자가평가 (정성)"
 };
 
 // 현재 로그인 세션 + 프로필을 가져오고, 없으면 로그인 페이지로 이동
@@ -64,6 +65,12 @@ async function signOutAndRedirect() {
 function calcAchievementRate(metric, latestActual, milestoneAchieved) {
   if (metric.metric_type === "milestone") {
     return milestoneAchieved ? 100 : 0;
+  }
+  if (metric.metric_type === "qualitative") {
+    // 정성 지표: 목표/기준값 없이 담당자가 직접 입력한 진척도(0~100%)를 그대로 달성률로 사용
+    const v = Number(latestActual);
+    if (latestActual === null || latestActual === undefined || isNaN(v)) return null;
+    return Math.max(0, Math.min(100, Math.round(v * 10) / 10));
   }
   const target = Number(metric.target_value);
   const baseline = Number(metric.baseline_value);
