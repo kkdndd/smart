@@ -16,18 +16,22 @@
 
   <div id="create-section" class="card p-5 hidden">
     <h2 class="font-medium text-slate-800 mb-3">새 변경요청 작성 <span id="create-goal-name" class="text-sm text-slate-500"></span></h2>
-    <textarea id="reason" rows="2" placeholder="변경 사유" class="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-2"></textarea>
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-      <textarea id="p_strategy_name" placeholder="전략(목표) - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
-      <textarea id="p_specific_text" placeholder="Specific - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
-      <textarea id="p_measurable_text" placeholder="Measurable - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
-      <textarea id="p_achievable_text" placeholder="Achievable - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
-      <textarea id="p_relevant_text" placeholder="Relevant - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
-      <textarea id="p_timebound_text" placeholder="Time-bound - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
-    </div>
+    <textarea id="reason" rows="2" placeholder="변경 사유" class="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-3"></textarea>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm" id="field-grid"></div>
     <p class="text-xs text-slate-400 my-2">비워둔 항목은 기존 값을 유지합니다.</p>
     <button id="submit-cr" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2">변경요청 제출</button>
   </div>
+
+  <template id="field-block-tpl">
+    <div>
+      <label class="flex items-center gap-1.5 text-xs font-medium text-slate-500 mb-1">
+        <input type="checkbox" class="field-check" />
+        <span class="field-label"></span>
+      </label>
+      <p class="text-xs rounded p-2 mb-1 field-current" style="background:var(--surface-hover);color:var(--text-secondary)"></p>
+      <textarea class="field-input w-full border border-slate-300 rounded px-2 py-1.5" placeholder="변경 후 값 입력" disabled></textarea>
+    </div>
+  </template>
 
   <div>
     <h2 class="font-medium text-slate-800 mb-2">변경요청 목록</h2>
@@ -42,24 +46,64 @@ let PROFILE;
 const params = new URLSearchParams(location.search);
 const GOAL_ID = params.get("goal");
 
+const FIELD_DEFS = [
+  { key: "strategy_name", label: "전략(목표)" },
+  { key: "specific_text", label: "S · Specific" },
+  { key: "measurable_text", label: "M · Measurable" },
+  { key: "achievable_text", label: "A · Achievable" },
+  { key: "relevant_text", label: "R · Relevant" },
+  { key: "timebound_text", label: "T · Time-bound" },
+];
+
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "cr");
   if (GOAL_ID && !isHoldco(PROFILE)) {
-    const { data: goal } = await sb.from("goals").select("strategy_name").eq("id", GOAL_ID).single();
+    const { data: goal } = await sb.from("goals").select("*").eq("id", GOAL_ID).single();
     if (goal) {
       document.getElementById("create-section").classList.remove("hidden");
       document.getElementById("create-goal-name").textContent = "· " + goal.strategy_name;
+      renderFieldGrid(goal);
     }
   }
   await load();
 })();
 
+function renderFieldGrid(goal) {
+  const grid = document.getElementById("field-grid");
+  const tpl = document.getElementById("field-block-tpl");
+  grid.innerHTML = "";
+  FIELD_DEFS.forEach(f => {
+    const node = tpl.content.cloneNode(true);
+    const wrap = node.querySelector("div");
+    wrap.dataset.field = f.key;
+    node.querySelector(".field-label").textContent = f.label + " (현재 값)";
+    node.querySelector(".field-current").innerHTML = nl2br(goal[f.key]) || '<span style="color:var(--text-tertiary)">입력된 내용 없음</span>';
+    const checkbox = node.querySelector(".field-check");
+    const textarea = node.querySelector(".field-input");
+    checkbox.addEventListener("change", () => {
+      textarea.disabled = !checkbox.checked;
+      textarea.classList.toggle("opacity-50", !checkbox.checked);
+      if (checkbox.checked) textarea.focus();
+      else textarea.value = "";
+    });
+    grid.appendChild(node);
+  });
+}
+
 document.getElementById("submit-cr")?.addEventListener("click", async () => {
-  const fields = ["strategy_name","specific_text","measurable_text","achievable_text","relevant_text","timebound_text"];
   const proposed = {};
-  fields.forEach(f => { const v = document.getElementById("p_"+f).value.trim(); if (v) proposed[f] = v; });
+  let missingValue = false;
+  document.querySelectorAll("#field-grid > div").forEach(wrap => {
+    const checked = wrap.querySelector(".field-check").checked;
+    if (!checked) return;
+    const v = wrap.querySelector(".field-input").value.trim();
+    if (!v) { missingValue = true; return; }
+    proposed[wrap.dataset.field] = v;
+  });
+  if (missingValue) { alert("변경 체크한 항목에는 변경 후 값을 입력해주세요."); return; }
+  if (Object.keys(proposed).length === 0) { alert("변경할 항목을 하나 이상 체크하고 값을 입력해주세요."); return; }
   const { error } = await sb.from("change_requests").insert({
     goal_id: GOAL_ID, requested_by: PROFILE.id,
     reason: document.getElementById("reason").value,

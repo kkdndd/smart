@@ -43,6 +43,12 @@
   <!-- 경영진용 위험 신호 -->
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" id="risk-cards"></div>
 
+  <!-- 회사별 현황 한눈에 보기 -->
+  <div id="company-overview-section" class="mb-6">
+    <h2 class="text-[15px] font-semibold mb-3" style="color:var(--text-primary)">회사별 현황</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="company-overview-cards"></div>
+  </div>
+
   <div class="flex items-center justify-between mb-3">
     <h2 class="text-[15px] font-semibold" style="color:var(--text-primary)">계열사별 목표 현황</h2>
     <input id="search-input" type="text" placeholder="목표/지표/회사 검색"
@@ -113,7 +119,50 @@ function avgRate(goalsSubset) {
 function render() {
   renderSummary();
   renderRiskCards();
+  renderCompanyOverview();
   renderGroups();
+}
+
+function renderCompanyOverview() {
+  const section = document.getElementById("company-overview-section");
+  if (!isHoldco(PROFILE)) { section.classList.add("hidden"); return; }
+
+  const companies = {};
+  ALL_GOALS.forEach(g => {
+    if (!companies[g.company_id]) companies[g.company_id] = { name: g.companies.name, goals: [] };
+    companies[g.company_id].goals.push(g);
+  });
+
+  const statusCount = (goals, status) => goals.filter(g => g.status === status).length;
+
+  document.getElementById("company-overview-cards").innerHTML = Object.entries(companies).map(([companyId, c]) => {
+    const r = avgRate(c.goals);
+    const atRisk = c.goals.filter(g => { const rr = goalRate(g); return rr !== null && rr < 60; }).length;
+    const approved = statusCount(c.goals, "approved") + statusCount(c.goals, "locked");
+    const submitted = statusCount(c.goals, "submitted");
+    const revision = statusCount(c.goals, "revision_requested");
+    const draft = statusCount(c.goals, "draft");
+    return `<div class="card p-4 cursor-pointer risk-card" onclick="focusCompany('${companyId}')">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[14px] font-semibold" style="color:var(--text-primary)">${escapeHtml(c.name)}</span>
+        <span class="badge ${rateColorClass(r)}">${r===null?'실적없음':r+'%'}</span>
+      </div>
+      <p class="text-[12px] mb-2" style="color:var(--text-secondary)">목표 ${c.goals.length}건${atRisk>0?` · <span style="color:var(--red)">위험 ${atRisk}건</span>`:''}</p>
+      <div class="flex flex-wrap gap-1">
+        ${approved ? `<span class="badge ${STATUS_BADGE_CLASS.approved} !text-[10px]">승인 ${approved}</span>` : ''}
+        ${submitted ? `<span class="badge ${STATUS_BADGE_CLASS.submitted} !text-[10px]">검토대기 ${submitted}</span>` : ''}
+        ${revision ? `<span class="badge ${STATUS_BADGE_CLASS.revision_requested} !text-[10px]">수정요청 ${revision}</span>` : ''}
+        ${draft ? `<span class="badge ${STATUS_BADGE_CLASS.draft} !text-[10px]">임시저장 ${draft}</span>` : ''}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function focusCompany(companyId) {
+  const el = document.getElementById("company-block-" + companyId);
+  if (!el) return;
+  el.open = true;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderSummary() {
@@ -214,7 +263,7 @@ function renderGroups() {
       </details>`;
     }).join("");
 
-    return `<details class="acc card p-2" ${entries.length <= 3 ? 'open' : ''}>
+    return `<details id="company-block-${companyId}" class="acc card p-2" ${entries.length <= 3 ? 'open' : ''}>
       <summary class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-[var(--surface-hover)]">
         <span class="flex items-center gap-2 text-[14.5px] font-semibold" style="color:var(--text-primary)">
           <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
