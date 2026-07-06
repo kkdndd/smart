@@ -6,9 +6,10 @@
 <title>검토/승인 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-4">
   <h1 class="text-lg font-bold text-slate-800">검토/승인 대기 목표</h1>
@@ -37,7 +38,7 @@ async function load() {
   const focusGoal = new URLSearchParams(location.search).get("goal");
 
   document.getElementById("list-root").innerHTML = (goals||[]).map(g => `
-    <div class="bg-white rounded-xl shadow p-5 ${focusGoal===g.id?'ring-2 ring-blue-400':''}">
+    <div class="card p-5 ${focusGoal===g.id?'ring-2 ring-blue-400':''}">
       <div class="flex items-center justify-between mb-2">
         <div>
           <span class="font-semibold text-slate-800">${escapeHtml(g.companies.name)} · ${escapeHtml(g.business_units?g.business_units.name:'')}</span>

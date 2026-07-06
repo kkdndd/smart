@@ -6,13 +6,14 @@
 <title>진행실적 입력 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
   <h1 class="text-lg font-bold text-slate-800">진행실적 입력</h1>
-  <div class="bg-white rounded-xl shadow p-4">
+  <div class="card p-4">
     <label class="block text-sm text-slate-600 mb-1">목표 선택</label>
     <select id="goal-select" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></select>
   </div>
@@ -79,10 +80,10 @@ async function loadMetricsForGoal(goalId) {
         <td class="py-1.5 px-2"><input class="val-note border border-slate-300 rounded px-2 py-1 text-sm w-full" placeholder="메모" value="${p&&p.note?escapeHtml(p.note):''}" ${canEdit?'':'disabled'} /></td>
         <td class="py-1.5 px-2"><input type="file" class="val-file text-xs" ${canEdit?'':'disabled'} />${p&&p.attachment_path?`<a href="#" class="download-link text-xs text-blue-600 underline ml-1" data-path="${p.attachment_path}">첨부확인</a>`:''}</td>
         <td class="py-1.5 px-2 text-xs text-slate-400">${p&&p.submitter?escapeHtml(p.submitter.name||p.submitter.email)+' · '+new Date(p.updated_at).toLocaleDateString('ko-KR'):''}</td>
-        <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-slate-800 text-white rounded px-2 py-1">저장</button>`:''}</td>
+        <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-[#3a4356] text-white rounded px-2 py-1">저장</button>`:''}</td>
       </tr>`;
     }).join("");
-    return `<div class="bg-white rounded-xl shadow p-4">
+    return `<div class="card p-4">
       <h3 class="font-medium text-sm text-slate-800 mb-2">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(목표 ${m.target_value ?? '-'} ${m.unit||''})</span></h3>
       <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1">기간</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>

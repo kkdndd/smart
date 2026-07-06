@@ -6,9 +6,10 @@
 <title>목표 상세 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
   <div class="flex items-center justify-between">
@@ -16,7 +17,7 @@
     <div id="header-actions" class="flex gap-2"></div>
   </div>
 
-  <div class="bg-white rounded-xl shadow p-6">
+  <div class="card p-6">
     <div class="flex items-center gap-2 mb-1">
       <h1 id="title" class="text-lg font-bold text-slate-800"></h1>
       <span id="status-badge" class="px-2 py-0.5 rounded-full text-xs"></span>
@@ -32,12 +33,12 @@
     </dl>
   </div>
 
-  <div class="bg-white rounded-xl shadow p-6">
+  <div class="card p-6">
     <h2 class="font-semibold text-slate-800 mb-3">핵심지표(KPI) 및 달성 현황</h2>
     <div id="metrics-root" class="space-y-3"></div>
   </div>
 
-  <div class="bg-white rounded-xl shadow p-6">
+  <div class="card p-6">
     <h2 class="font-semibold text-slate-800 mb-3">검토/승인 이력</h2>
     <div id="reviews-root" class="space-y-2 text-sm"></div>
   </div>
@@ -78,7 +79,7 @@ async function load() {
 function renderActions() {
   const actions = [];
   const editable = !isHoldco(PROFILE) && (GOAL.status === "draft" || GOAL.status === "revision_requested");
-  if (editable) actions.push(`<a href="goal-form.html?id=${GOAL.id}" class="text-sm bg-slate-800 text-white rounded px-3 py-1.5">수정</a>`);
+  if (editable) actions.push(`<a href="goal-form.html?id=${GOAL.id}" class="text-sm bg-[#3a4356] text-white rounded px-3 py-1.5">수정</a>`);
   if (!isHoldco(PROFILE) && (GOAL.status === "approved" || GOAL.status === "locked")) {
     actions.push(`<a href="change-requests.html?goal=${GOAL.id}" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5">변경요청</a>`);
   }

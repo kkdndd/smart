@@ -9,29 +9,53 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
+<style>
+  details.acc > summary { list-style: none; cursor: pointer; }
+  details.acc > summary::-webkit-details-marker { display: none; }
+  details.acc > summary .chev { transition: transform .15s ease; }
+  details.acc[open] > summary .chev { transform: rotate(90deg); }
+  .goal-row:hover { background: var(--surface-hover); }
+  .risk-card { transition: box-shadow .15s ease, transform .1s ease; }
+  .risk-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.06); transform: translateY(-1px); }
+</style>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="min-h-screen">
 <div id="nav-root"></div>
 
-<div class="max-w-6xl mx-auto px-4 py-6">
-  <div class="flex items-center justify-between mb-4">
-    <nav id="breadcrumb" class="text-sm text-slate-500"></nav>
+<div class="max-w-6xl mx-auto px-6 py-8">
+
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-[22px] font-bold tracking-tight" style="color:var(--text-primary)">사업계획 대시보드</h1>
+      <p class="text-[13px]" style="color:var(--text-secondary)">2026년 · 전체 계열사 SMART 목표 현황</p>
+    </div>
     <div class="flex gap-2">
-      <button id="export-excel" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-100">Excel 내보내기</button>
-      <button id="export-pdf" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-100">PDF 내보내기</button>
+      <button id="export-excel" class="btn btn-secondary">Excel 내보내기</button>
+      <button id="export-pdf" class="btn btn-secondary">PDF 내보내기</button>
     </div>
   </div>
 
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6" id="summary-cards"></div>
+  <!-- 핵심 요약 -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="summary-cards"></div>
 
-  <div id="panel-root" class="bg-white rounded-xl shadow p-4"></div>
+  <!-- 경영진용 위험 신호 -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" id="risk-cards"></div>
+
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-[15px] font-semibold" style="color:var(--text-primary)">계열사별 목표 현황</h2>
+    <input id="search-input" type="text" placeholder="목표/지표/회사 검색"
+      class="text-[13px] border rounded-lg px-3 py-1.5 w-56" style="border-color:var(--border)" />
+  </div>
+
+  <div id="panel-root" class="space-y-3"></div>
 </div>
 
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, STATE = { level: "company", company: null, bu: null };
+let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, SEARCH = "";
 const YEAR = 2026;
 
 (async function init() {
@@ -39,15 +63,17 @@ const YEAR = 2026;
   if (!PROFILE) return;
   renderNav(PROFILE, "dashboard");
   await loadData();
-  if (!isHoldco(PROFILE)) {
-    STATE = { level: "bu", company: PROFILE.company_id, bu: null };
-  }
   render();
+  document.getElementById("search-input").addEventListener("input", (e) => {
+    SEARCH = e.target.value.trim().toLowerCase();
+    renderGroups();
+  });
 })();
 
 async function loadData() {
-  let goalQuery = sb.from("goals").select("*, companies:company_id(id,name), business_units:business_unit_id(id,name)").eq("year", YEAR);
-  const { data: goals, error } = await goalQuery;
+  let q = sb.from("goals").select("*, companies:company_id(id,name), business_units:business_unit_id(id,name)").eq("year", YEAR);
+  if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
+  const { data: goals, error } = await q;
   if (error) { console.error(error); return; }
   ALL_GOALS = goals || [];
 
@@ -63,7 +89,7 @@ async function loadData() {
   const { data: progress } = await sb.from("progress_entries").select("*").in("goal_metric_id", metricIds).order("period", { ascending: false });
   LATEST_PROGRESS = {};
   (progress || []).forEach(p => {
-    if (!LATEST_PROGRESS[p.goal_metric_id]) LATEST_PROGRESS[p.goal_metric_id] = p; // 이미 period desc 정렬이라 첫번째가 최신
+    if (!LATEST_PROGRESS[p.goal_metric_id]) LATEST_PROGRESS[p.goal_metric_id] = p;
   });
 }
 
@@ -72,14 +98,12 @@ function metricRate(metric) {
   if (!p) return null;
   return calcAchievementRate(metric, p.actual_value, p.milestone_achieved);
 }
-
+function goalMetrics(goal) { return ALL_METRICS.filter(m => m.goal_id === goal.id); }
 function goalRate(goal) {
-  const metrics = ALL_METRICS.filter(m => m.goal_id === goal.id);
-  const rates = metrics.map(metricRate).filter(r => r !== null && r !== undefined);
+  const rates = goalMetrics(goal).map(metricRate).filter(r => r !== null && r !== undefined);
   if (rates.length === 0) return null;
   return Math.round((rates.reduce((a,b)=>a+b,0) / rates.length) * 10) / 10;
 }
-
 function avgRate(goalsSubset) {
   const rates = goalsSubset.map(goalRate).filter(r => r !== null && r !== undefined);
   if (rates.length === 0) return null;
@@ -87,131 +111,124 @@ function avgRate(goalsSubset) {
 }
 
 function render() {
-  renderBreadcrumb();
   renderSummary();
-  if (STATE.level === "company") renderCompanyLevel();
-  else if (STATE.level === "bu") renderBuLevel();
-  else if (STATE.level === "goal") renderGoalLevel();
-}
-
-function renderBreadcrumb() {
-  const bc = document.getElementById("breadcrumb");
-  const parts = [];
-  if (isHoldco(PROFILE)) parts.push(`<a href="#" onclick="goCompanyLevel(); return false;" class="hover:underline">전체 계열사</a>`);
-  if (STATE.company) {
-    const c = companyById(STATE.company);
-    parts.push(`<a href="#" onclick="goBuLevel('${STATE.company}'); return false;" class="hover:underline">${escapeHtml(c ? c.name : '')}</a>`);
-  }
-  if (STATE.bu) {
-    const bu = ALL_GOALS.find(g => g.business_unit_id === STATE.bu)?.business_units;
-    parts.push(`<span>${escapeHtml(bu ? bu.name : '')}</span>`);
-  }
-  bc.innerHTML = parts.join(" <span class='mx-1'>›</span> ") || "&nbsp;";
-}
-
-function companyById(id) {
-  const g = ALL_GOALS.find(g => g.company_id === id);
-  return g ? g.companies : null;
+  renderRiskCards();
+  renderGroups();
 }
 
 function renderSummary() {
-  const scope = scopedGoals();
-  const total = scope.length;
-  const approved = scope.filter(g => g.status === "approved" || g.status === "locked").length;
-  const rate = avgRate(scope);
-  document.getElementById("summary-cards").innerHTML = `
-    <div class="bg-white rounded-xl shadow p-4">
-      <p class="text-xs text-slate-500">전체 목표 수</p>
-      <p class="text-2xl font-bold text-slate-800">${total}</p>
-    </div>
-    <div class="bg-white rounded-xl shadow p-4">
-      <p class="text-xs text-slate-500">승인완료 목표</p>
-      <p class="text-2xl font-bold text-slate-800">${approved} <span class="text-sm font-normal text-slate-400">/ ${total}</span></p>
-    </div>
-    <div class="bg-white rounded-xl shadow p-4">
-      <p class="text-xs text-slate-500">평균 달성률</p>
-      <p class="text-2xl font-bold ${rate===null?'text-slate-400':(rate>=90?'text-green-600':rate>=60?'text-amber-600':'text-red-600')}">${rate===null?'-':rate+'%'}</p>
+  const total = ALL_GOALS.length;
+  const approved = ALL_GOALS.filter(g => g.status === "approved" || g.status === "locked").length;
+  const submitted = ALL_GOALS.filter(g => g.status === "submitted").length;
+  const rate = avgRate(ALL_GOALS);
+  const cell = (label, value, colorClass) => `
+    <div class="card p-4">
+      <p class="text-[12px]" style="color:var(--text-secondary)">${label}</p>
+      <p class="text-2xl font-bold mt-1 ${colorClass||''}" ${colorClass?'':'style="color:var(--text-primary)"'}>${value}</p>
     </div>`;
+  document.getElementById("summary-cards").innerHTML =
+    cell("전체 목표", total) +
+    cell("승인완료", `${approved}<span class="text-sm font-normal" style="color:var(--text-tertiary)"> / ${total}</span>`) +
+    cell("검토대기", submitted) +
+    cell("평균 달성률", rate===null?'-':rate+'%', rate===null?'':(rate>=90?'text-[#2f9e5b]':rate>=60?'text-[#c98a1f]':'text-[#c94a3c]'));
 }
 
-function scopedGoals() {
-  if (STATE.level === "company") return ALL_GOALS;
-  if (STATE.level === "bu" && !STATE.bu) return ALL_GOALS.filter(g => g.company_id === STATE.company);
-  if (STATE.bu) return ALL_GOALS.filter(g => g.business_unit_id === STATE.bu);
-  return ALL_GOALS;
+function renderRiskCards() {
+  const atRisk = ALL_GOALS.filter(g => { const r = goalRate(g); return r !== null && r < 60; });
+  const revisionNeeded = ALL_GOALS.filter(g => g.status === "revision_requested");
+  const noProgress = ALL_GOALS.filter(g => (g.status === "approved" || g.status === "locked") && goalMetrics(g).every(m => !LATEST_PROGRESS[m.id]));
+
+  const card = (title, list, tone, emptyMsg) => `
+    <div class="card risk-card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[13px] font-semibold" style="color:var(--text-primary)">${title}</span>
+        <span class="badge" style="background:${tone.bg};color:${tone.fg}">${list.length}건</span>
+      </div>
+      <div class="space-y-1.5 max-h-32 overflow-y-auto">
+        ${list.slice(0,5).map(g => `<a href="goal-detail.html?id=${g.id}" class="block text-[12.5px] truncate hover:underline" style="color:var(--text-secondary)">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}</a>`).join("") || `<p class="text-[12px]" style="color:var(--text-tertiary)">${emptyMsg}</p>`}
+      </div>
+    </div>`;
+
+  document.getElementById("risk-cards").innerHTML =
+    card("달성률 60% 미만", atRisk, { bg: "var(--red-soft)", fg: "var(--red)" }, "위험 목표가 없습니다") +
+    card("수정요청 대기중", revisionNeeded, { bg: "var(--amber-soft)", fg: "var(--amber)" }, "없음") +
+    card("실적 미입력 목표", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "모두 입력됨");
 }
 
-function renderCompanyLevel() {
+function matchesSearch(g) {
+  if (!SEARCH) return true;
+  const hay = [g.companies.name, g.strategy_name, g.indicator_name, g.business_units?.name].join(" ").toLowerCase();
+  return hay.includes(SEARCH);
+}
+
+function renderGroups() {
   const companies = {};
-  ALL_GOALS.forEach(g => {
+  ALL_GOALS.filter(matchesSearch).forEach(g => {
     if (!companies[g.company_id]) companies[g.company_id] = { name: g.companies.name, goals: [] };
     companies[g.company_id].goals.push(g);
   });
-  const cards = Object.entries(companies).map(([id, c]) => {
+
+  const root = document.getElementById("panel-root");
+  const entries = Object.entries(companies);
+  if (entries.length === 0) {
+    root.innerHTML = `<div class="card p-8 text-center text-sm" style="color:var(--text-tertiary)">검색 결과가 없습니다.</div>`;
+    return;
+  }
+
+  root.innerHTML = entries.map(([companyId, c]) => {
     const r = avgRate(c.goals);
-    return `<div onclick="goBuLevel('${id}')" class="cursor-pointer border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-semibold text-slate-800">${escapeHtml(c.name)}</span>
-        <span class="w-2.5 h-2.5 rounded-full ${rateDotClass(r)}"></span>
-      </div>
-      <p class="text-xs text-slate-500 mb-1">목표 ${c.goals.length}건</p>
-      <p class="text-lg font-bold ${r===null?'text-slate-400':''}">${r===null?'-':r+'%'}</p>
-    </div>`;
-  }).join("");
-  document.getElementById("panel-root").innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">${cards}</div>`;
-}
+    const buGroups = {};
+    c.goals.forEach(g => {
+      const key = g.business_unit_id || "none";
+      const name = g.business_units ? g.business_units.name : "사업부 미지정";
+      if (!buGroups[key]) buGroups[key] = { name, goals: [] };
+      buGroups[key].goals.push(g);
+    });
 
-function renderBuLevel() {
-  const goalsInCompany = ALL_GOALS.filter(g => g.company_id === STATE.company);
-  const bus = {};
-  goalsInCompany.forEach(g => {
-    const key = g.business_unit_id || "none";
-    const name = g.business_units ? g.business_units.name : "(사업부 미지정)";
-    if (!bus[key]) bus[key] = { name, goals: [] };
-    bus[key].goals.push(g);
-  });
-  const cards = Object.entries(bus).map(([id, b]) => {
-    const r = avgRate(b.goals);
-    return `<div onclick="goGoalLevel(${id==='none'?'null':`'${id}'`})" class="cursor-pointer border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
-      <div class="flex items-center justify-between mb-2">
-        <span class="font-semibold text-slate-800">${escapeHtml(b.name)}</span>
-        <span class="w-2.5 h-2.5 rounded-full ${rateDotClass(r)}"></span>
-      </div>
-      <p class="text-xs text-slate-500 mb-1">목표 ${b.goals.length}건</p>
-      <p class="text-lg font-bold ${r===null?'text-slate-400':''}">${r===null?'-':r+'%'}</p>
-    </div>`;
-  }).join("");
-  document.getElementById("panel-root").innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">${cards}</div>`;
-}
+    const buHtml = Object.values(buGroups).map(bu => {
+      const buRate = avgRate(bu.goals);
+      const rows = bu.goals.sort((a,b)=>(a.seq_no??0)-(b.seq_no??0)).map(g => {
+        const rate = goalRate(g);
+        return `<a href="goal-detail.html?id=${g.id}" class="goal-row flex items-start gap-3 px-3 py-2.5 rounded-lg">
+          <span class="dot mt-1.5 ${rateDotClass(rate)}"></span>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-[13.5px] font-medium truncate" style="color:var(--text-primary)">${escapeHtml(g.strategy_name)}</span>
+              <span class="badge ${STATUS_BADGE_CLASS[g.status]} !text-[10px]">${STATUS_LABEL[g.status]}</span>
+            </div>
+            <p class="text-[12px] truncate" style="color:var(--text-secondary)">${escapeHtml(g.indicator_name || g.specific_text || '')}</p>
+          </div>
+          <span class="badge ${rateColorClass(rate)} whitespace-nowrap">${rate===null?'실적없음':rate+'%'}</span>
+        </a>`;
+      }).join("");
 
-function renderGoalLevel() {
-  const goals = scopedGoals();
-  const rows = goals.map(g => {
-    const r = goalRate(g);
-    return `<tr class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="window.location.href='goal-detail.html?id=${g.id}'">
-      <td class="py-2 px-3 text-sm">${g.seq_no ?? ''}</td>
-      <td class="py-2 px-3 text-sm font-medium text-slate-800">${escapeHtml(g.strategy_name)}</td>
-      <td class="py-2 px-3 text-sm text-slate-600">${escapeHtml(g.indicator_name)}</td>
-      <td class="py-2 px-3 text-sm"><span class="px-2 py-0.5 rounded-full text-xs ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
-      <td class="py-2 px-3 text-sm"><span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(r)}">${r===null?'-':r+'%'}</span></td>
-    </tr>`;
-  }).join("");
-  document.getElementById("panel-root").innerHTML = `
-    <table class="w-full">
-      <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
-        <th class="py-2 px-3">#</th><th class="py-2 px-3">전략(목표)</th><th class="py-2 px-3">핵심지표</th><th class="py-2 px-3">상태</th><th class="py-2 px-3">달성률</th>
-      </tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" class="py-6 text-center text-slate-400 text-sm">목표가 없습니다</td></tr>'}</tbody>
-    </table>`;
-}
+      return `<details class="acc">
+        <summary class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-[var(--surface-hover)]">
+          <span class="flex items-center gap-2 text-[13px] font-medium" style="color:var(--text-primary)">
+            <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            ${escapeHtml(bu.name)}<span class="text-[12px] font-normal" style="color:var(--text-tertiary)">· ${bu.goals.length}건</span>
+          </span>
+          <span class="badge ${rateColorClass(buRate)}">${buRate===null?'-':buRate+'%'}</span>
+        </summary>
+        <div class="pl-4 pb-1">${rows}</div>
+      </details>`;
+    }).join("");
 
-function goCompanyLevel() { STATE = { level: "company", company: null, bu: null }; render(); }
-function goBuLevel(companyId) { STATE = { level: "bu", company: companyId, bu: null }; render(); }
-function goGoalLevel(buId) { STATE = { level: "goal", company: STATE.company, bu: buId }; render(); }
+    return `<details class="acc card p-2" ${entries.length <= 3 ? 'open' : ''}>
+      <summary class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-[var(--surface-hover)]">
+        <span class="flex items-center gap-2 text-[14.5px] font-semibold" style="color:var(--text-primary)">
+          <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+          ${escapeHtml(c.name)}<span class="text-[12.5px] font-normal" style="color:var(--text-tertiary)">· 목표 ${c.goals.length}건</span>
+        </span>
+        <span class="badge ${rateColorClass(r)}">${r===null?'실적없음':r+'%'}</span>
+      </summary>
+      <div class="pl-2">${buHtml}</div>
+    </details>`;
+  }).join("");
+}
 
 document.getElementById("export-excel").addEventListener("click", () => {
-  const goals = scopedGoals();
-  const rows = goals.map(g => ({
+  const rows = ALL_GOALS.filter(matchesSearch).map(g => ({
     "회사": g.companies.name, "사업부": g.business_units ? g.business_units.name : "",
     "관리번호": g.seq_no, "전략(목표)": g.strategy_name, "Specific": g.specific_text,
     "Measurable": g.measurable_text, "Achievable": g.achievable_text, "Relevant": g.relevant_text,
@@ -229,7 +246,7 @@ document.getElementById("export-pdf").addEventListener("click", () => {
   const doc = new jsPDF();
   doc.setFontSize(14);
   doc.text(`대교홀딩스 ${YEAR}년 SMART 사업계획 현황`, 14, 15);
-  const goals = scopedGoals();
+  const goals = ALL_GOALS.filter(matchesSearch);
   doc.autoTable({
     startY: 22,
     head: [["회사", "전략(목표)", "지표", "상태", "달성률"]],

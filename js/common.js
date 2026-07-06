@@ -11,11 +11,11 @@ const STATUS_LABEL = {
 };
 
 const STATUS_BADGE_CLASS = {
-  draft: "bg-gray-100 text-gray-700",
-  submitted: "bg-blue-100 text-blue-700",
-  revision_requested: "bg-amber-100 text-amber-700",
-  approved: "bg-green-100 text-green-700",
-  locked: "bg-slate-200 text-slate-700"
+  draft: "bg-[#f0f0f2] text-[#6e6e73]",
+  submitted: "bg-[#eaf0f8] text-[#4c6fa5]",
+  revision_requested: "bg-[#faf1de] text-[#b9821f]",
+  approved: "bg-[#e7f5ec] text-[#2f9e5b]",
+  locked: "bg-[#eceef1] text-[#3a4356]"
 };
 
 const METRIC_TYPE_LABEL = {
@@ -83,17 +83,26 @@ function calcAchievementRate(metric, latestActual, milestoneAchieved) {
 }
 
 function rateColorClass(rate) {
-  if (rate === null || rate === undefined) return "bg-gray-100 text-gray-500";
-  if (rate >= 90) return "bg-green-100 text-green-700";
-  if (rate >= 60) return "bg-amber-100 text-amber-700";
-  return "bg-red-100 text-red-700";
+  if (rate === null || rate === undefined) return "bg-[#f0f0f2] text-[#a1a1a6]";
+  if (rate >= 90) return "bg-[#e7f5ec] text-[#2f9e5b]";
+  if (rate >= 60) return "bg-[#faf1de] text-[#b9821f]";
+  return "bg-[#fbeae7] text-[#c94a3c]";
 }
 
 function rateDotClass(rate) {
-  if (rate === null || rate === undefined) return "bg-gray-300";
-  if (rate >= 90) return "bg-green-500";
-  if (rate >= 60) return "bg-amber-500";
-  return "bg-red-500";
+  if (rate === null || rate === undefined) return "bg-[#d1d1d6]";
+  if (rate >= 90) return "bg-[#2f9e5b]";
+  if (rate >= 60) return "bg-[#c98a1f]";
+  return "bg-[#c94a3c]";
+}
+
+// 위험도 판단 (경영진 대시보드용): 미승인/미달성 목표를 빠르게 식별
+function riskLevel(rate, status) {
+  if (status === "revision_requested") return "warn";
+  if (rate === null || rate === undefined) return "none";
+  if (rate < 60) return "risk";
+  if (rate < 90) return "warn";
+  return "ok";
 }
 
 function escapeHtml(str) {

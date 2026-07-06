@@ -6,9 +6,10 @@
 <title>계정 관리 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
   <h1 class="text-lg font-bold text-slate-800">계정 관리</h1>
@@ -16,7 +17,7 @@
     새 계정은 Supabase 대시보드(Authentication → Users → Invite user)에서 @daekyo.co.kr 이메일로 초대해야 합니다.
     초대된 계정은 아래 목록에 자동으로 나타나며, 여기서 소속 계열사와 역할을 지정하세요.
   </p>
-  <div class="bg-white rounded-xl shadow overflow-x-auto">
+  <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
         <th class="py-2 px-3">이메일</th><th class="py-2 px-3">이름</th><th class="py-2 px-3">소속 계열사</th><th class="py-2 px-3">역할</th><th class="py-2 px-3"></th>
@@ -59,7 +60,7 @@ async function load() {
           <option value="holdco_exec" ${p.role==='holdco_exec'?'selected':''}>지주사 경영진(조회전용)</option>
         </select>
       </td>
-      <td class="py-2 px-3"><button class="save-btn text-xs bg-slate-800 text-white rounded px-3 py-1">저장</button></td>
+      <td class="py-2 px-3"><button class="save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1">저장</button></td>
     </tr>`).join("");
 
   document.querySelectorAll(".save-btn").forEach(btn => {
