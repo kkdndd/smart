@@ -89,7 +89,7 @@ async function loadMetricsForGoal(goalId) {
       const isMilestone = m.metric_type === "milestone";
       const isQualitative = m.metric_type === "qualitative";
       return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
-        <td class="py-1.5 px-2 text-xs text-slate-500">${period}</td>
+        <td class="py-1.5 px-2 text-xs text-slate-500 w-[104px] whitespace-nowrap">${period}</td>
         <td class="py-1.5 px-2">
           ${isMilestone
             ? `<select class="val-milestone border border-slate-300 rounded px-2 py-1 text-sm" ${canEdit?'':'disabled'}>
@@ -113,10 +113,13 @@ async function loadMetricsForGoal(goalId) {
     const goalHint = m.metric_type === "milestone" ? "완료 여부로 관리"
       : m.metric_type === "qualitative" ? "진척도(%) 자가평가로 관리"
       : `목표 ${m.target_value ?? '-'} ${m.unit||''}`;
-    return `<div class="card p-4">
-      <h3 class="font-medium text-sm text-slate-800 mb-2">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span></h3>
+    return `<div class="card p-4 metric-card" data-metric="${m.id}">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span></h3>
+        ${canEdit ? `<button class="bulk-save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1.5 hover:bg-[#2c3342] whitespace-nowrap">일괄저장</button>` : ''}
+      </div>
       <div class="overflow-x-auto"><table class="w-full text-sm">
-        <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1">기간</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
+        <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1 w-[104px]">기간</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>`;
@@ -125,7 +128,23 @@ async function loadMetricsForGoal(goalId) {
   document.querySelectorAll(".save-btn").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       const tr = e.target.closest("tr");
-      await saveProgress(tr);
+      const ok = await saveProgress(tr, { force: true });
+      if (ok) { alert("저장되었습니다."); loadMetricsForGoal(SELECTED_GOAL_ID); }
+    });
+  });
+  document.querySelectorAll(".bulk-save-btn").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      const card = e.target.closest(".metric-card");
+      const trs = card.querySelectorAll("tbody tr");
+      btn.disabled = true;
+      btn.textContent = "저장 중...";
+      let count = 0;
+      for (const tr of trs) {
+        const ok = await saveProgress(tr);
+        if (ok) count++;
+      }
+      alert(`${count}개 기간의 실적이 저장되었습니다.`);
+      loadMetricsForGoal(SELECTED_GOAL_ID);
     });
   });
   document.querySelectorAll(".download-link").forEach(a => {
@@ -152,7 +171,8 @@ function sanitizeStorageFilename(name) {
   return base + ext;
 }
 
-async function saveProgress(tr) {
+async function saveProgress(tr, opts) {
+  const force = opts && opts.force;
   const metricId = tr.dataset.metric;
   const period = tr.dataset.period;
   const milestoneSel = tr.querySelector(".val-milestone");
@@ -160,14 +180,21 @@ async function saveProgress(tr) {
   const note = tr.querySelector(".val-note").value;
   const fileInput = tr.querySelector(".val-file");
 
+  // 실적/메모/파일이 전부 비어있는 행은 건드리지 않는다 (일괄저장 시 빈 행까지 덮어쓰지 않기 위함)
+  const hasActual = actualInput && actualInput.value !== "";
+  const hasMilestone = milestoneSel && milestoneSel.value !== "";
+  const hasFile = fileInput && fileInput.files && fileInput.files[0];
+  const hasNote = note !== "";
+  if (!force && !hasActual && !hasMilestone && !hasFile && !hasNote) return false;
+
   let attachment_path = null;
   let attachment_name = null;
-  if (fileInput && fileInput.files && fileInput.files[0]) {
+  if (hasFile) {
     const file = fileInput.files[0];
     const safeName = sanitizeStorageFilename(file.name);
     const path = `${metricId}/${period}/${Date.now()}_${safeName}`;
     const { error: upErr } = await sb.storage.from("progress-attachments").upload(path, file, { upsert: true });
-    if (upErr) { alert("파일 업로드 실패: " + upErr.message); return; }
+    if (upErr) { alert("파일 업로드 실패: " + upErr.message); return false; }
     attachment_path = path;
     attachment_name = file.name; // 원본 파일명(한글 포함)은 화면 표시용으로 별도 저장
   }
@@ -185,9 +212,8 @@ async function saveProgress(tr) {
   if (attachment_path) { payload.attachment_path = attachment_path; payload.attachment_name = attachment_name; }
 
   const { error } = await sb.from("progress_entries").upsert(payload, { onConflict: "goal_metric_id,period" });
-  if (error) { alert("저장 실패: " + error.message); return; }
-  alert("저장되었습니다.");
-  loadMetricsForGoal(SELECTED_GOAL_ID);
+  if (error) { alert("저장 실패 (" + period + "): " + error.message); return false; }
+  return true;
 }
 </script>
 </body>
