@@ -20,6 +20,7 @@
     </div>
     <div id="goal-list" class="divide-y divide-slate-100 max-h-72 overflow-y-auto"></div>
   </div>
+  <div id="goal-context" class="card p-4 hidden"></div>
   <div id="metrics-container" class="space-y-4"></div>
 </div>
 
@@ -67,8 +68,38 @@ function renderGoalList() {
 function selectGoal(goalId) {
   SELECTED_GOAL_ID = goalId;
   renderGoalList();
-  if (goalId) loadMetricsForGoal(goalId);
-  else document.getElementById("metrics-container").innerHTML = "";
+  if (goalId) {
+    loadGoalContext(goalId);
+    loadMetricsForGoal(goalId);
+  } else {
+    document.getElementById("goal-context").classList.add("hidden");
+    document.getElementById("metrics-container").innerHTML = "";
+  }
+}
+
+async function loadGoalContext(goalId) {
+  const ctx = document.getElementById("goal-context");
+  const { data: goal, error } = await sb.from("goals")
+    .select("strategy_name, specific_text, measurable_text, achievable_text, relevant_text, timebound_text, status, companies:company_id(name), business_units:business_unit_id(name)")
+    .eq("id", goalId).single();
+  if (error || !goal) { ctx.classList.add("hidden"); return; }
+
+  const field = (label, val) => `<div><dt class="text-[11px] font-medium mb-0.5" style="color:var(--text-tertiary)">${label}</dt><dd class="text-slate-700">${nl2br(val) || '<span style="color:var(--text-tertiary)">-</span>'}</dd></div>`;
+
+  ctx.classList.remove("hidden");
+  ctx.innerHTML = `
+    <div class="flex items-center gap-2 mb-2">
+      <h2 class="font-semibold text-slate-800">${escapeHtml(goal.strategy_name)}</h2>
+      <span class="badge ${STATUS_BADGE_CLASS[goal.status]}">${STATUS_LABEL[goal.status]}</span>
+    </div>
+    <p class="text-xs text-slate-400 mb-3">${escapeHtml(goal.companies?.name||'')} · ${escapeHtml(goal.business_units?.name||'사업부 미지정')}</p>
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+      ${field("S · Specific", goal.specific_text)}
+      ${field("M · Measurable", goal.measurable_text)}
+      ${field("A · Achievable", goal.achievable_text)}
+      ${field("R · Relevant", goal.relevant_text)}
+      ${field("T · Time-bound", goal.timebound_text)}
+    </dl>`;
 }
 
 async function loadMetricsForGoal(goalId) {

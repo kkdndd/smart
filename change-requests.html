@@ -115,21 +115,42 @@ document.getElementById("submit-cr")?.addEventListener("click", async () => {
 });
 
 async function load() {
-  let q = sb.from("change_requests").select("*, goals:goal_id(strategy_name, companies:company_id(name)), requester:requested_by(name,email)").order("created_at", { ascending: false });
+  let q = sb.from("change_requests").select("*, goals:goal_id(strategy_name, specific_text, measurable_text, achievable_text, relevant_text, timebound_text, companies:company_id(name)), requester:requested_by(name,email)").order("created_at", { ascending: false });
   const { data, error } = await q;
   if (error) { console.error(error); return; }
 
   document.getElementById("list-root").innerHTML = (data||[]).map(cr => {
     const canDecide = isHoldcoEditor(PROFILE) && cr.status === "pending";
+    const goal = cr.goals || {};
+    const changeRows = Object.entries(cr.proposed_changes || {}).map(([key, newVal]) => {
+      const def = FIELD_DEFS.find(f => f.key === key);
+      const label = def ? def.label : key;
+      const oldVal = goal[key];
+      return `<div class="border border-slate-200 rounded p-2 mb-1.5">
+        <p class="text-[11px] font-medium mb-1" style="color:var(--text-tertiary)">${escapeHtml(label)}</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div>
+            <p class="text-[10px] mb-0.5" style="color:var(--text-tertiary)">변경 전</p>
+            <p class="rounded p-1.5" style="background:var(--red-soft);color:var(--text-secondary)">${nl2br(oldVal) || '<span style="color:var(--text-tertiary)">(없음)</span>'}</p>
+          </div>
+          <div>
+            <p class="text-[10px] mb-0.5" style="color:var(--text-tertiary)">변경 후</p>
+            <p class="rounded p-1.5" style="background:var(--green-soft);color:var(--text-secondary)">${nl2br(newVal)}</p>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+
     return `<div class="card p-4">
       <div class="flex items-center justify-between mb-1">
-        <span class="font-medium text-slate-800">${escapeHtml(cr.goals?.companies?.name||'')} · ${escapeHtml(cr.goals?.strategy_name||'')}</span>
+        <span class="font-medium text-slate-800">${escapeHtml(goal.companies?.name||'')} · ${escapeHtml(goal.strategy_name||'')}</span>
         <span class="text-xs px-2 py-0.5 rounded-full ${cr.status==='pending'?'bg-amber-100 text-amber-700':cr.status==='approved'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${{pending:'대기중',approved:'승인됨',rejected:'반려됨'}[cr.status]}</span>
       </div>
-      <p class="text-sm text-slate-600 mb-1">사유: ${escapeHtml(cr.reason||'')}</p>
-      <p class="text-xs text-slate-400 mb-2">요청자: ${cr.requester?escapeHtml(cr.requester.name||cr.requester.email):''} · ${new Date(cr.created_at).toLocaleString('ko-KR')}</p>
-      <pre class="text-xs rounded p-2 overflow-x-auto">${escapeHtml(JSON.stringify(cr.proposed_changes, null, 2))}</pre>
-      ${canDecide ? `<div class="flex gap-2 mt-2">
+      <p class="text-sm text-slate-600 mb-1">사유: ${escapeHtml(cr.reason||'(작성 안 함)')}</p>
+      <p class="text-xs text-slate-400 mb-3">요청자: ${cr.requester?escapeHtml(cr.requester.name||cr.requester.email):''} · ${new Date(cr.created_at).toLocaleString('ko-KR')}</p>
+      <p class="text-xs font-medium mb-1.5" style="color:var(--text-secondary)">변경 요청 항목 (${Object.keys(cr.proposed_changes||{}).length}건)</p>
+      ${changeRows || '<p class="text-xs text-slate-400">변경 항목 없음</p>'}
+      ${canDecide ? `<div class="flex gap-2 mt-3">
         <button onclick="decide('${cr.id}', true)" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인 및 적용</button>
         <button onclick="decide('${cr.id}', false)" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
       </div>` : ''}
