@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>목표 변경요청 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/config.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+  <h1 class="text-lg font-bold text-slate-800">목표 변경요청</h1>
+
+  <div id="create-section" class="bg-white rounded-xl shadow p-5 hidden">
+    <h2 class="font-medium text-slate-800 mb-3">새 변경요청 작성 <span id="create-goal-name" class="text-sm text-slate-500"></span></h2>
+    <textarea id="reason" rows="2" placeholder="변경 사유" class="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-2"></textarea>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+      <textarea id="p_strategy_name" placeholder="전략(목표) - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
+      <textarea id="p_specific_text" placeholder="Specific - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
+      <textarea id="p_measurable_text" placeholder="Measurable - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
+      <textarea id="p_achievable_text" placeholder="Achievable - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
+      <textarea id="p_relevant_text" placeholder="Relevant - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
+      <textarea id="p_timebound_text" placeholder="Time-bound - 변경 후" class="border border-slate-300 rounded px-2 py-1.5"></textarea>
+    </div>
+    <p class="text-xs text-slate-400 my-2">비워둔 항목은 기존 값을 유지합니다.</p>
+    <button id="submit-cr" class="bg-slate-800 text-white text-sm rounded px-4 py-2">변경요청 제출</button>
+  </div>
+
+  <div>
+    <h2 class="font-medium text-slate-800 mb-2">변경요청 목록</h2>
+    <div id="list-root" class="space-y-3"></div>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE;
+const params = new URLSearchParams(location.search);
+const GOAL_ID = params.get("goal");
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "cr");
+  if (GOAL_ID && !isHoldco(PROFILE)) {
+    const { data: goal } = await sb.from("goals").select("strategy_name").eq("id", GOAL_ID).single();
+    if (goal) {
+      document.getElementById("create-section").classList.remove("hidden");
+      document.getElementById("create-goal-name").textContent = "· " + goal.strategy_name;
+    }
+  }
+  await load();
+})();
+
+document.getElementById("submit-cr")?.addEventListener("click", async () => {
+  const fields = ["strategy_name","specific_text","measurable_text","achievable_text","relevant_text","timebound_text"];
+  const proposed = {};
+  fields.forEach(f => { const v = document.getElementById("p_"+f).value.trim(); if (v) proposed[f] = v; });
+  const { error } = await sb.from("change_requests").insert({
+    goal_id: GOAL_ID, requested_by: PROFILE.id,
+    reason: document.getElementById("reason").value,
+    proposed_changes: proposed
+  });
+  if (error) { alert("제출 실패: " + error.message); return; }
+  alert("변경요청이 제출되었습니다.");
+  window.location.href = "goal-detail.html?id=" + GOAL_ID;
+});
+
+async function load() {
+  let q = sb.from("change_requests").select("*, goals:goal_id(strategy_name, companies:company_id(name)), requester:requested_by(name,email)").order("created_at", { ascending: false });
+  const { data, error } = await q;
+  if (error) { console.error(error); return; }
+
+  document.getElementById("list-root").innerHTML = (data||[]).map(cr => {
+    const canDecide = isHoldcoEditor(PROFILE) && cr.status === "pending";
+    return `<div class="bg-white rounded-xl shadow p-4">
+      <div class="flex items-center justify-between mb-1">
+        <span class="font-medium text-slate-800">${escapeHtml(cr.goals?.companies?.name||'')} · ${escapeHtml(cr.goals?.strategy_name||'')}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full ${cr.status==='pending'?'bg-amber-100 text-amber-700':cr.status==='approved'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${{pending:'대기중',approved:'승인됨',rejected:'반려됨'}[cr.status]}</span>
+      </div>
+      <p class="text-sm text-slate-600 mb-1">사유: ${escapeHtml(cr.reason||'')}</p>
+      <p class="text-xs text-slate-400 mb-2">요청자: ${cr.requester?escapeHtml(cr.requester.name||cr.requester.email):''} · ${new Date(cr.created_at).toLocaleString('ko-KR')}</p>
+      <pre class="text-xs bg-slate-50 rounded p-2 overflow-x-auto">${escapeHtml(JSON.stringify(cr.proposed_changes, null, 2))}</pre>
+      ${canDecide ? `<div class="flex gap-2 mt-2">
+        <button onclick="decide('${cr.id}', true)" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인 및 적용</button>
+        <button onclick="decide('${cr.id}', false)" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
+      </div>` : ''}
+    </div>`;
+  }).join("") || `<p class="text-sm text-slate-400">변경요청이 없습니다.</p>`;
+}
+
+async function decide(crId, approve) {
+  const { data: cr, error } = await sb.from("change_requests").select("*").eq("id", crId).single();
+  if (error || !cr) { alert("불러오기 실패"); return; }
+
+  if (approve) {
+    const { error: gErr } = await sb.from("goals").update(cr.proposed_changes).eq("id", cr.goal_id);
+    if (gErr) { alert("목표 적용 실패: " + gErr.message); return; }
+  }
+  const { error: crErr } = await sb.from("change_requests").update({
+    status: approve ? "approved" : "rejected",
+    reviewed_by: PROFILE.id,
+    reviewed_at: new Date().toISOString()
+  }).eq("id", crId);
+  if (crErr) { alert("처리 실패: " + crErr.message); return; }
+  await load();
+}
+</script>
+</body>
+</html>

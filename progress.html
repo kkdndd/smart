@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>진행실적 입력 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/config.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
+  <h1 class="text-lg font-bold text-slate-800">진행실적 입력</h1>
+  <div class="bg-white rounded-xl shadow p-4">
+    <label class="block text-sm text-slate-600 mb-1">목표 선택</label>
+    <select id="goal-select" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></select>
+  </div>
+  <div id="metrics-container" class="space-y-4"></div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, YEAR = 2026;
+const params = new URLSearchParams(location.search);
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "progress");
+  await loadGoalOptions();
+  const preselect = params.get("goal");
+  if (preselect) document.getElementById("goal-select").value = preselect;
+  if (document.getElementById("goal-select").value) await loadMetricsForGoal(document.getElementById("goal-select").value);
+})();
+
+document.getElementById("goal-select").addEventListener("change", (e) => {
+  if (e.target.value) loadMetricsForGoal(e.target.value);
+  else document.getElementById("metrics-container").innerHTML = "";
+});
+
+async function loadGoalOptions() {
+  let q = sb.from("goals").select("id, strategy_name, seq_no, companies:company_id(name)").eq("year", YEAR).order("seq_no");
+  if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
+  const { data } = await q;
+  const sel = document.getElementById("goal-select");
+  sel.innerHTML = `<option value="">-- 선택 --</option>` + (data||[]).map(g =>
+    `<option value="${g.id}">${escapeHtml(g.companies.name)} · ${g.seq_no ?? ''} ${escapeHtml(g.strategy_name)}</option>`).join("");
+}
+
+async function loadMetricsForGoal(goalId) {
+  const canEdit = !isHoldco(PROFILE);
+  const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", goalId);
+  const metricIds = (metrics||[]).map(m=>m.id);
+  let progressByKey = {};
+  if (metricIds.length) {
+    const { data: progress } = await sb.from("progress_entries").select("*, submitter:submitted_by(name,email)").in("goal_metric_id", metricIds);
+    (progress||[]).forEach(p => progressByKey[p.goal_metric_id + "|" + p.period] = p);
+  }
+
+  document.getElementById("metrics-container").innerHTML = (metrics||[]).map(m => {
+    const periods = periodsForYear(YEAR, m.period_type);
+    const rows = periods.map(period => {
+      const key = m.id + "|" + period;
+      const p = progressByKey[key];
+      const isMilestone = m.metric_type === "milestone";
+      return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
+        <td class="py-1.5 px-2 text-xs text-slate-500">${period}</td>
+        <td class="py-1.5 px-2">
+          ${isMilestone
+            ? `<select class="val-milestone border border-slate-300 rounded px-2 py-1 text-sm" ${canEdit?'':'disabled'}>
+                 <option value="">미입력</option>
+                 <option value="true" ${p&&p.milestone_achieved===true?'selected':''}>완료</option>
+                 <option value="false" ${p&&p.milestone_achieved===false?'selected':''}>미완료</option>
+               </select>`
+            : `<input type="number" step="any" class="val-actual border border-slate-300 rounded px-2 py-1 text-sm w-28" value="${p&&p.actual_value!==null?p.actual_value:''}" ${canEdit?'':'disabled'} />`}
+        </td>
+        <td class="py-1.5 px-2"><input class="val-note border border-slate-300 rounded px-2 py-1 text-sm w-full" placeholder="메모" value="${p&&p.note?escapeHtml(p.note):''}" ${canEdit?'':'disabled'} /></td>
+        <td class="py-1.5 px-2"><input type="file" class="val-file text-xs" ${canEdit?'':'disabled'} />${p&&p.attachment_path?`<a href="#" class="download-link text-xs text-blue-600 underline ml-1" data-path="${p.attachment_path}">첨부확인</a>`:''}</td>
+        <td class="py-1.5 px-2 text-xs text-slate-400">${p&&p.submitter?escapeHtml(p.submitter.name||p.submitter.email)+' · '+new Date(p.updated_at).toLocaleDateString('ko-KR'):''}</td>
+        <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-slate-800 text-white rounded px-2 py-1">저장</button>`:''}</td>
+      </tr>`;
+    }).join("");
+    return `<div class="bg-white rounded-xl shadow p-4">
+      <h3 class="font-medium text-sm text-slate-800 mb-2">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(목표 ${m.target_value ?? '-'} ${m.unit||''})</span></h3>
+      <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1">기간</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }).join("") || `<p class="text-sm text-slate-400">등록된 지표가 없습니다.</p>`;
+
+  document.querySelectorAll(".save-btn").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      const tr = e.target.closest("tr");
+      await saveProgress(tr);
+    });
+  });
+  document.querySelectorAll(".download-link").forEach(a => {
+    a.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const { data, error } = await sb.storage.from("progress-attachments").createSignedUrl(a.dataset.path, 60);
+      if (data) window.open(data.signedUrl, "_blank");
+    });
+  });
+}
+
+async function saveProgress(tr) {
+  const metricId = tr.dataset.metric;
+  const period = tr.dataset.period;
+  const milestoneSel = tr.querySelector(".val-milestone");
+  const actualInput = tr.querySelector(".val-actual");
+  const note = tr.querySelector(".val-note").value;
+  const fileInput = tr.querySelector(".val-file");
+
+  let attachment_path = null;
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    const file = fileInput.files[0];
+    const path = `${metricId}/${period}/${Date.now()}_${file.name}`;
+    const { error: upErr } = await sb.storage.from("progress-attachments").upload(path, file, { upsert: true });
+    if (upErr) { alert("파일 업로드 실패: " + upErr.message); return; }
+    attachment_path = path;
+  }
+
+  const payload = {
+    goal_metric_id: metricId,
+    period,
+    note,
+    submitted_by: PROFILE.id,
+    updated_by: PROFILE.id,
+    updated_at: new Date().toISOString()
+  };
+  if (milestoneSel) payload.milestone_achieved = milestoneSel.value === "" ? null : milestoneSel.value === "true";
+  if (actualInput) payload.actual_value = actualInput.value === "" ? null : Number(actualInput.value);
+  if (attachment_path) payload.attachment_path = attachment_path;
+
+  const { error } = await sb.from("progress_entries").upsert(payload, { onConflict: "goal_metric_id,period" });
+  if (error) { alert("저장 실패: " + error.message); return; }
+  alert("저장되었습니다.");
+  loadMetricsForGoal(document.getElementById("goal-select").value);
+}
+</script>
+</body>
+</html>

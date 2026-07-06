@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>사업계획 목표 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/config.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-lg font-bold text-slate-800">2026년 사업계획 목표</h1>
+    <button id="new-btn" class="bg-slate-800 text-white text-sm rounded px-4 py-2 hover:bg-slate-700">+ 새 목표 작성</button>
+  </div>
+  <div class="bg-white rounded-xl shadow overflow-x-auto">
+    <table class="w-full">
+      <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
+        <th class="py-2 px-3">#</th><th class="py-2 px-3">사업부</th><th class="py-2 px-3">전략(목표)</th>
+        <th class="py-2 px-3">상태</th><th class="py-2 px-3">최근 검토 의견</th><th class="py-2 px-3"></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE;
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "goals");
+  document.getElementById("new-btn").classList.toggle("hidden", isHoldco(PROFILE));
+  await loadGoals();
+})();
+
+document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
+
+async function loadGoals() {
+  let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", 2026).order("seq_no");
+  if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
+  else q = q.eq("company_id", PROFILE.company_id || "___none___"); // holdco staff without company just browse via dashboard instead
+  const { data: goals, error } = await q;
+  if (error) { console.error(error); return; }
+
+  const goalIds = (goals||[]).map(g=>g.id);
+  let reviewsByGoal = {};
+  if (goalIds.length) {
+    const { data: reviews } = await sb.from("goal_reviews").select("*").in("goal_id", goalIds).order("created_at", { ascending: false });
+    (reviews||[]).forEach(r => { if(!reviewsByGoal[r.goal_id]) reviewsByGoal[r.goal_id] = r; });
+  }
+
+  document.getElementById("rows").innerHTML = (goals||[]).map(g => {
+    const lastReview = reviewsByGoal[g.id];
+    const editable = g.status === "draft" || g.status === "revision_requested";
+    return `<tr class="border-b border-slate-100">
+      <td class="py-2 px-3 text-sm">${g.seq_no ?? ''}</td>
+      <td class="py-2 px-3 text-sm">${escapeHtml(g.business_units ? g.business_units.name : '')}</td>
+      <td class="py-2 px-3 text-sm font-medium text-slate-800">${escapeHtml(g.strategy_name)}</td>
+      <td class="py-2 px-3 text-sm"><span class="px-2 py-0.5 rounded-full text-xs ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
+      <td class="py-2 px-3 text-xs text-slate-500 max-w-xs">${lastReview ? escapeHtml(lastReview.comment||'') : ''}</td>
+      <td class="py-2 px-3 text-sm text-right whitespace-nowrap">
+        <a href="goal-detail.html?id=${g.id}" class="text-slate-500 hover:underline mr-3">상세</a>
+        ${(!isHoldco(PROFILE) && editable) ? `<a href="goal-form.html?id=${g.id}" class="text-slate-800 font-medium hover:underline">수정</a>` : ''}
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="6" class="py-8 text-center text-slate-400 text-sm">등록된 목표가 없습니다. '새 목표 작성'으로 시작하세요.</td></tr>`;
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>대시보드 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="js/config.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="nav-root"></div>
+
+<div class="max-w-6xl mx-auto px-4 py-6">
+  <div class="flex items-center justify-between mb-4">
+    <nav id="breadcrumb" class="text-sm text-slate-500"></nav>
+    <div class="flex gap-2">
+      <button id="export-excel" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-100">Excel 내보내기</button>
+      <button id="export-pdf" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5 hover:bg-slate-100">PDF 내보내기</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6" id="summary-cards"></div>
+
+  <div id="panel-root" class="bg-white rounded-xl shadow p-4"></div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, STATE = { level: "company", company: null, bu: null };
+const YEAR = 2026;
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "dashboard");
+  await loadData();
+  if (!isHoldco(PROFILE)) {
+    STATE = { level: "bu", company: PROFILE.company_id, bu: null };
+  }
+  render();
+})();
+
+async function loadData() {
+  let goalQuery = sb.from("goals").select("*, companies:company_id(id,name), business_units:business_unit_id(id,name)").eq("year", YEAR);
+  const { data: goals, error } = await goalQuery;
+  if (error) { console.error(error); return; }
+  ALL_GOALS = goals || [];
+
+  const goalIds = ALL_GOALS.map(g => g.id);
+  if (goalIds.length === 0) return;
+
+  const { data: metrics } = await sb.from("goal_metrics").select("*").in("goal_id", goalIds);
+  ALL_METRICS = metrics || [];
+
+  const metricIds = ALL_METRICS.map(m => m.id);
+  if (metricIds.length === 0) return;
+
+  const { data: progress } = await sb.from("progress_entries").select("*").in("goal_metric_id", metricIds).order("period", { ascending: false });
+  LATEST_PROGRESS = {};
+  (progress || []).forEach(p => {
+    if (!LATEST_PROGRESS[p.goal_metric_id]) LATEST_PROGRESS[p.goal_metric_id] = p; // 이미 period desc 정렬이라 첫번째가 최신
+  });
+}
+
+function metricRate(metric) {
+  const p = LATEST_PROGRESS[metric.id];
+  if (!p) return null;
+  return calcAchievementRate(metric, p.actual_value, p.milestone_achieved);
+}
+
+function goalRate(goal) {
+  const metrics = ALL_METRICS.filter(m => m.goal_id === goal.id);
+  const rates = metrics.map(metricRate).filter(r => r !== null && r !== undefined);
+  if (rates.length === 0) return null;
+  return Math.round((rates.reduce((a,b)=>a+b,0) / rates.length) * 10) / 10;
+}
+
+function avgRate(goalsSubset) {
+  const rates = goalsSubset.map(goalRate).filter(r => r !== null && r !== undefined);
+  if (rates.length === 0) return null;
+  return Math.round((rates.reduce((a,b)=>a+b,0) / rates.length) * 10) / 10;
+}
+
+function render() {
+  renderBreadcrumb();
+  renderSummary();
+  if (STATE.level === "company") renderCompanyLevel();
+  else if (STATE.level === "bu") renderBuLevel();
+  else if (STATE.level === "goal") renderGoalLevel();
+}
+
+function renderBreadcrumb() {
+  const bc = document.getElementById("breadcrumb");
+  const parts = [];
+  if (isHoldco(PROFILE)) parts.push(`<a href="#" onclick="goCompanyLevel(); return false;" class="hover:underline">전체 계열사</a>`);
+  if (STATE.company) {
+    const c = companyById(STATE.company);
+    parts.push(`<a href="#" onclick="goBuLevel('${STATE.company}'); return false;" class="hover:underline">${escapeHtml(c ? c.name : '')}</a>`);
+  }
+  if (STATE.bu) {
+    const bu = ALL_GOALS.find(g => g.business_unit_id === STATE.bu)?.business_units;
+    parts.push(`<span>${escapeHtml(bu ? bu.name : '')}</span>`);
+  }
+  bc.innerHTML = parts.join(" <span class='mx-1'>›</span> ") || "&nbsp;";
+}
+
+function companyById(id) {
+  const g = ALL_GOALS.find(g => g.company_id === id);
+  return g ? g.companies : null;
+}
+
+function renderSummary() {
+  const scope = scopedGoals();
+  const total = scope.length;
+  const approved = scope.filter(g => g.status === "approved" || g.status === "locked").length;
+  const rate = avgRate(scope);
+  document.getElementById("summary-cards").innerHTML = `
+    <div class="bg-white rounded-xl shadow p-4">
+      <p class="text-xs text-slate-500">전체 목표 수</p>
+      <p class="text-2xl font-bold text-slate-800">${total}</p>
+    </div>
+    <div class="bg-white rounded-xl shadow p-4">
+      <p class="text-xs text-slate-500">승인완료 목표</p>
+      <p class="text-2xl font-bold text-slate-800">${approved} <span class="text-sm font-normal text-slate-400">/ ${total}</span></p>
+    </div>
+    <div class="bg-white rounded-xl shadow p-4">
+      <p class="text-xs text-slate-500">평균 달성률</p>
+      <p class="text-2xl font-bold ${rate===null?'text-slate-400':(rate>=90?'text-green-600':rate>=60?'text-amber-600':'text-red-600')}">${rate===null?'-':rate+'%'}</p>
+    </div>`;
+}
+
+function scopedGoals() {
+  if (STATE.level === "company") return ALL_GOALS;
+  if (STATE.level === "bu" && !STATE.bu) return ALL_GOALS.filter(g => g.company_id === STATE.company);
+  if (STATE.bu) return ALL_GOALS.filter(g => g.business_unit_id === STATE.bu);
+  return ALL_GOALS;
+}
+
+function renderCompanyLevel() {
+  const companies = {};
+  ALL_GOALS.forEach(g => {
+    if (!companies[g.company_id]) companies[g.company_id] = { name: g.companies.name, goals: [] };
+    companies[g.company_id].goals.push(g);
+  });
+  const cards = Object.entries(companies).map(([id, c]) => {
+    const r = avgRate(c.goals);
+    return `<div onclick="goBuLevel('${id}')" class="cursor-pointer border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-semibold text-slate-800">${escapeHtml(c.name)}</span>
+        <span class="w-2.5 h-2.5 rounded-full ${rateDotClass(r)}"></span>
+      </div>
+      <p class="text-xs text-slate-500 mb-1">목표 ${c.goals.length}건</p>
+      <p class="text-lg font-bold ${r===null?'text-slate-400':''}">${r===null?'-':r+'%'}</p>
+    </div>`;
+  }).join("");
+  document.getElementById("panel-root").innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">${cards}</div>`;
+}
+
+function renderBuLevel() {
+  const goalsInCompany = ALL_GOALS.filter(g => g.company_id === STATE.company);
+  const bus = {};
+  goalsInCompany.forEach(g => {
+    const key = g.business_unit_id || "none";
+    const name = g.business_units ? g.business_units.name : "(사업부 미지정)";
+    if (!bus[key]) bus[key] = { name, goals: [] };
+    bus[key].goals.push(g);
+  });
+  const cards = Object.entries(bus).map(([id, b]) => {
+    const r = avgRate(b.goals);
+    return `<div onclick="goGoalLevel(${id==='none'?'null':`'${id}'`})" class="cursor-pointer border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-semibold text-slate-800">${escapeHtml(b.name)}</span>
+        <span class="w-2.5 h-2.5 rounded-full ${rateDotClass(r)}"></span>
+      </div>
+      <p class="text-xs text-slate-500 mb-1">목표 ${b.goals.length}건</p>
+      <p class="text-lg font-bold ${r===null?'text-slate-400':''}">${r===null?'-':r+'%'}</p>
+    </div>`;
+  }).join("");
+  document.getElementById("panel-root").innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">${cards}</div>`;
+}
+
+function renderGoalLevel() {
+  const goals = scopedGoals();
+  const rows = goals.map(g => {
+    const r = goalRate(g);
+    return `<tr class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="window.location.href='goal-detail.html?id=${g.id}'">
+      <td class="py-2 px-3 text-sm">${g.seq_no ?? ''}</td>
+      <td class="py-2 px-3 text-sm font-medium text-slate-800">${escapeHtml(g.strategy_name)}</td>
+      <td class="py-2 px-3 text-sm text-slate-600">${escapeHtml(g.indicator_name)}</td>
+      <td class="py-2 px-3 text-sm"><span class="px-2 py-0.5 rounded-full text-xs ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
+      <td class="py-2 px-3 text-sm"><span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(r)}">${r===null?'-':r+'%'}</span></td>
+    </tr>`;
+  }).join("");
+  document.getElementById("panel-root").innerHTML = `
+    <table class="w-full">
+      <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
+        <th class="py-2 px-3">#</th><th class="py-2 px-3">전략(목표)</th><th class="py-2 px-3">핵심지표</th><th class="py-2 px-3">상태</th><th class="py-2 px-3">달성률</th>
+      </tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="py-6 text-center text-slate-400 text-sm">목표가 없습니다</td></tr>'}</tbody>
+    </table>`;
+}
+
+function goCompanyLevel() { STATE = { level: "company", company: null, bu: null }; render(); }
+function goBuLevel(companyId) { STATE = { level: "bu", company: companyId, bu: null }; render(); }
+function goGoalLevel(buId) { STATE = { level: "goal", company: STATE.company, bu: buId }; render(); }
+
+document.getElementById("export-excel").addEventListener("click", () => {
+  const goals = scopedGoals();
+  const rows = goals.map(g => ({
+    "회사": g.companies.name, "사업부": g.business_units ? g.business_units.name : "",
+    "관리번호": g.seq_no, "전략(목표)": g.strategy_name, "Specific": g.specific_text,
+    "Measurable": g.measurable_text, "Achievable": g.achievable_text, "Relevant": g.relevant_text,
+    "Time-bound": g.timebound_text, "지표": g.indicator_name, "상태": STATUS_LABEL[g.status],
+    "달성률(%)": goalRate(g)
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "사업계획");
+  XLSX.writeFile(wb, `대교홀딩스_사업계획_${YEAR}.xlsx`);
+});
+
+document.getElementById("export-pdf").addEventListener("click", () => {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text(`대교홀딩스 ${YEAR}년 SMART 사업계획 현황`, 14, 15);
+  const goals = scopedGoals();
+  doc.autoTable({
+    startY: 22,
+    head: [["회사", "전략(목표)", "지표", "상태", "달성률"]],
+    body: goals.map(g => [g.companies.name, g.strategy_name, g.indicator_name || "", STATUS_LABEL[g.status], (goalRate(g) ?? "-") + (goalRate(g)!==null?"%":"")]),
+    styles: { font: "helvetica", fontSize: 8 }
+  });
+  doc.save(`대교홀딩스_사업계획_${YEAR}.pdf`);
+});
+</script>
+</body>
+</html>

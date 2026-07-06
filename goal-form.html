@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>목표 작성/수정 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/config.js"></script>
+</head>
+<body class="bg-slate-50 min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-3xl mx-auto px-4 py-6">
+  <h1 class="text-lg font-bold text-slate-800 mb-4">SMART 목표 작성</h1>
+
+  <form id="goal-form" class="bg-white rounded-xl shadow p-6 space-y-4">
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">사업부</label>
+      <select id="business_unit_id" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></select>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">전략(목표) *</label>
+      <input id="strategy_name" required class="w-full border border-slate-300 rounded px-3 py-2 text-sm" placeholder="예: 핵심고객 Pool 확대" />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">S · Specific (무엇을 할 것인가)</label>
+      <textarea id="specific_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">M · Measurable (수치/기준)</label>
+      <textarea id="measurable_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">A · Achievable (달성 가능한 근거)</label>
+      <textarea id="achievable_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">R · Relevant (우선순위와의 관련성)</label>
+      <textarea id="relevant_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">T · Time-bound (완료 시점/마감일)</label>
+      <textarea id="timebound_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">후속조치</label>
+      <textarea id="follow_up_action" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">비고</label>
+      <textarea id="remarks" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
+    </div>
+
+    <div class="border-t border-slate-200 pt-4">
+      <div class="flex items-center justify-between mb-2">
+        <label class="block text-sm font-medium text-slate-700">핵심지표(KPI)</label>
+        <button type="button" id="add-metric" class="text-xs text-slate-600 underline">+ 지표 추가</button>
+      </div>
+      <div id="metrics-root" class="space-y-3"></div>
+    </div>
+
+    <p id="error-msg" class="text-sm text-red-600 hidden"></p>
+    <div class="flex gap-2 pt-2">
+      <button type="submit" data-mode="draft" class="bg-white border border-slate-300 text-slate-700 rounded px-4 py-2 text-sm hover:bg-slate-100">임시저장</button>
+      <button type="submit" data-mode="submit" class="bg-slate-800 text-white rounded px-4 py-2 text-sm hover:bg-slate-700">검토 제출</button>
+      <a href="goals.html" class="ml-auto text-sm text-slate-500 self-center hover:underline">취소</a>
+    </div>
+  </form>
+</div>
+
+<template id="metric-row-tpl">
+  <div class="metric-row grid grid-cols-1 sm:grid-cols-6 gap-2 border border-slate-200 rounded p-3">
+    <input class="m-name sm:col-span-2 border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="지표명 (예: 연단체 수)" />
+    <select class="m-type border border-slate-300 rounded px-2 py-1.5 text-sm">
+      <option value="increasing">증가형</option>
+      <option value="decreasing">감소형(원가율 등)</option>
+      <option value="milestone">마일스톤(완료여부)</option>
+    </select>
+    <input class="m-unit border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="단위(팀,명,%,건 등)" />
+    <input class="m-baseline border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="기준값" />
+    <input class="m-target border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="목표값" />
+    <select class="m-period sm:col-start-1 border border-slate-300 rounded px-2 py-1.5 text-sm">
+      <option value="monthly">월별 입력</option>
+      <option value="quarterly">분기별 입력</option>
+    </select>
+    <button type="button" class="m-remove text-xs text-red-500 underline sm:col-start-6 justify-self-end">삭제</button>
+  </div>
+</template>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, GOAL_ID = new URLSearchParams(location.search).get("id");
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "goals");
+  await loadBusinessUnits();
+  if (GOAL_ID) await loadGoal(GOAL_ID);
+  else addMetricRow();
+})();
+
+async function loadBusinessUnits() {
+  const { data } = await sb.from("business_units").select("*").eq("company_id", PROFILE.company_id).order("name");
+  const sel = document.getElementById("business_unit_id");
+  sel.innerHTML = `<option value="">(선택 안함)</option>` + (data||[]).map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+}
+
+async function loadGoal(id) {
+  const { data: goal, error } = await sb.from("goals").select("*").eq("id", id).single();
+  if (error || !goal) { alert("목표를 불러올 수 없습니다."); return; }
+  ["business_unit_id","strategy_name","specific_text","measurable_text","achievable_text","relevant_text","timebound_text","follow_up_action","remarks"]
+    .forEach(f => { const el = document.getElementById(f); if (el) el.value = goal[f] || ""; });
+
+  const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", id);
+  document.getElementById("metrics-root").innerHTML = "";
+  (metrics||[]).forEach(m => addMetricRow(m));
+  if (metrics && metrics.length === 0) addMetricRow();
+}
+
+function addMetricRow(m) {
+  const tpl = document.getElementById("metric-row-tpl").content.cloneNode(true);
+  const row = tpl.querySelector(".metric-row");
+  if (m) {
+    row.dataset.id = m.id;
+    row.querySelector(".m-name").value = m.metric_name || "";
+    row.querySelector(".m-type").value = m.metric_type || "increasing";
+    row.querySelector(".m-unit").value = m.unit || "";
+    row.querySelector(".m-baseline").value = m.baseline_value ?? "";
+    row.querySelector(".m-target").value = m.target_value ?? "";
+    row.querySelector(".m-period").value = m.period_type || "monthly";
+  }
+  row.querySelector(".m-remove").addEventListener("click", () => row.remove());
+  document.getElementById("metrics-root").appendChild(row);
+}
+
+document.getElementById("add-metric").addEventListener("click", () => addMetricRow());
+
+document.querySelectorAll('#goal-form button[type=submit]').forEach(btn => {
+  btn.addEventListener("click", (e) => { e.preventDefault(); saveGoal(btn.dataset.mode); });
+});
+
+async function saveGoal(mode) {
+  const errEl = document.getElementById("error-msg");
+  errEl.classList.add("hidden");
+  const strategy = document.getElementById("strategy_name").value.trim();
+  if (!strategy) { errEl.textContent = "전략(목표)을 입력해주세요."; errEl.classList.remove("hidden"); return; }
+
+  const payload = {
+    company_id: PROFILE.company_id,
+    year: 2026,
+    business_unit_id: document.getElementById("business_unit_id").value || null,
+    strategy_name: strategy,
+    specific_text: document.getElementById("specific_text").value,
+    measurable_text: document.getElementById("measurable_text").value,
+    achievable_text: document.getElementById("achievable_text").value,
+    relevant_text: document.getElementById("relevant_text").value,
+    timebound_text: document.getElementById("timebound_text").value,
+    follow_up_action: document.getElementById("follow_up_action").value,
+    remarks: document.getElementById("remarks").value,
+    status: mode === "submit" ? "submitted" : "draft",
+    created_by: PROFILE.id
+  };
+
+  let goalId = GOAL_ID;
+  if (goalId) {
+    const { error } = await sb.from("goals").update(payload).eq("id", goalId);
+    if (error) { errEl.textContent = "저장 실패: " + error.message; errEl.classList.remove("hidden"); return; }
+  } else {
+    const { data, error } = await sb.from("goals").insert(payload).select().single();
+    if (error) { errEl.textContent = "저장 실패: " + error.message; errEl.classList.remove("hidden"); return; }
+    goalId = data.id;
+  }
+
+  // 지표 저장 (기존 삭제 후 재삽입 - 단순화)
+  await sb.from("goal_metrics").delete().eq("goal_id", goalId);
+  const rows = [...document.querySelectorAll(".metric-row")].map(row => ({
+    goal_id: goalId,
+    metric_name: row.querySelector(".m-name").value || "미지정 지표",
+    metric_type: row.querySelector(".m-type").value,
+    unit: row.querySelector(".m-unit").value,
+    baseline_value: row.querySelector(".m-baseline").value || null,
+    target_value: row.querySelector(".m-target").value || null,
+    period_type: row.querySelector(".m-period").value
+  }));
+  if (rows.length) {
+    const { error: mErr } = await sb.from("goal_metrics").insert(rows);
+    if (mErr) { errEl.textContent = "지표 저장 실패: " + mErr.message; errEl.classList.remove("hidden"); return; }
+  }
+
+  if (mode === "submit") {
+    await sb.from("goal_reviews").insert({ goal_id: goalId, action: "submit", reviewer_id: null, comment: null });
+  }
+
+  window.location.href = "goal-detail.html?id=" + goalId;
+}
+</script>
+</body>
+</html>
