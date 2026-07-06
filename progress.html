@@ -53,7 +53,7 @@ function renderGoalList() {
   document.getElementById("goal-list").innerHTML = filtered.map(g => `
     <div data-id="${g.id}" class="goal-list-item flex items-center justify-between px-3 py-2 cursor-pointer text-sm ${g.id===SELECTED_GOAL_ID?'bg-[var(--accent-soft)]':'hover:bg-[var(--surface-hover)]'}">
       <div class="min-w-0">
-        <span class="font-medium text-slate-800">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}</span>
+        <span class="font-medium text-slate-800">${isHoldco(PROFILE) ? escapeHtml(g.companies.name) + ' · ' : ''}${escapeHtml(g.strategy_name)}</span>
         <span class="text-xs text-slate-400 ml-1">${escapeHtml(g.indicator_name||'')}</span>
       </div>
       <span class="badge ${STATUS_BADGE_CLASS[g.status]} whitespace-nowrap">${STATUS_LABEL[g.status]}</span>
@@ -105,7 +105,7 @@ async function loadMetricsForGoal(goalId) {
             : `<input type="number" step="any" class="val-actual border border-slate-300 rounded px-2 py-1 text-sm w-28" value="${p&&p.actual_value!==null?p.actual_value:''}" ${canEdit?'':'disabled'} />`}
         </td>
         <td class="py-1.5 px-2"><input class="val-note border border-slate-300 rounded px-2 py-1 text-sm w-full" placeholder="메모" value="${p&&p.note?escapeHtml(p.note):''}" ${canEdit?'':'disabled'} /></td>
-        <td class="py-1.5 px-2"><input type="file" class="val-file text-xs" ${canEdit?'':'disabled'} />${p&&p.attachment_path?`<a href="#" class="download-link text-xs text-blue-600 underline ml-1" data-path="${p.attachment_path}">첨부확인</a>`:''}</td>
+        <td class="py-1.5 px-2"><input type="file" class="val-file text-xs" ${canEdit?'':'disabled'} />${p&&p.attachment_path?`<a href="#" class="download-link text-xs text-blue-600 underline ml-1 block truncate max-w-[120px]" data-path="${p.attachment_path}" data-name="${escapeHtml(p.attachment_name||'첨부파일')}">${escapeHtml(p.attachment_name||'첨부확인')}</a>`:''}</td>
         <td class="py-1.5 px-2 text-xs text-slate-400">${p&&p.submitter?escapeHtml(p.submitter.name||p.submitter.email)+' · '+new Date(p.updated_at).toLocaleDateString('ko-KR'):''}</td>
         <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-[#3a4356] text-white rounded px-2 py-1">저장</button>`:''}</td>
       </tr>`;
@@ -131,10 +131,25 @@ async function loadMetricsForGoal(goalId) {
   document.querySelectorAll(".download-link").forEach(a => {
     a.addEventListener("click", async (e) => {
       e.preventDefault();
-      const { data, error } = await sb.storage.from("progress-attachments").createSignedUrl(a.dataset.path, 60);
+      const { data, error } = await sb.storage.from("progress-attachments").createSignedUrl(a.dataset.path, 60, { download: a.dataset.name });
       if (data) window.open(data.signedUrl, "_blank");
     });
   });
+}
+
+// Storage 객체 키는 영문/숫자/일부 기호만 허용되어, 한글 등 비ASCII 문자가 포함된 파일명은
+// 업로드 시 "Invalid key" 오류가 난다. 저장 경로에는 안전한 이름만 쓰고, 원본 파일명은 별도 컬럼에 보관한다.
+function sanitizeStorageFilename(name) {
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot).replace(/[^a-zA-Z0-9.]/g, "") : "";
+  let base = (dot >= 0 ? name.slice(0, dot) : name)
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 60);
+  if (!base) base = "file";
+  return base + ext;
 }
 
 async function saveProgress(tr) {
@@ -146,12 +161,15 @@ async function saveProgress(tr) {
   const fileInput = tr.querySelector(".val-file");
 
   let attachment_path = null;
+  let attachment_name = null;
   if (fileInput && fileInput.files && fileInput.files[0]) {
     const file = fileInput.files[0];
-    const path = `${metricId}/${period}/${Date.now()}_${file.name}`;
+    const safeName = sanitizeStorageFilename(file.name);
+    const path = `${metricId}/${period}/${Date.now()}_${safeName}`;
     const { error: upErr } = await sb.storage.from("progress-attachments").upload(path, file, { upsert: true });
     if (upErr) { alert("파일 업로드 실패: " + upErr.message); return; }
     attachment_path = path;
+    attachment_name = file.name; // 원본 파일명(한글 포함)은 화면 표시용으로 별도 저장
   }
 
   const payload = {
@@ -164,7 +182,7 @@ async function saveProgress(tr) {
   };
   if (milestoneSel) payload.milestone_achieved = milestoneSel.value === "" ? null : milestoneSel.value === "true";
   if (actualInput) payload.actual_value = actualInput.value === "" ? null : Number(actualInput.value);
-  if (attachment_path) payload.attachment_path = attachment_path;
+  if (attachment_path) { payload.attachment_path = attachment_path; payload.attachment_name = attachment_name; }
 
   const { error } = await sb.from("progress_entries").upsert(payload, { onConflict: "goal_metric_id,period" });
   if (error) { alert("저장 실패: " + error.message); return; }
