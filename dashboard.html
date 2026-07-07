@@ -9,6 +9,8 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
 <style>
@@ -43,6 +45,22 @@
   <!-- 경영진용 위험 신호 -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6" id="risk-cards"></div>
 
+  <!-- 차트: 상태별 목표 분포 / 계열사·사업부별 달성률 -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-6">
+    <div class="card p-4">
+      <p class="text-[13px] font-semibold mb-2" style="color:var(--text-primary)">상태별 목표 분포</p>
+      <div id="status-chart-wrap" style="height:220px; position:relative;">
+        <canvas id="status-chart"></canvas>
+      </div>
+    </div>
+    <div class="card p-4">
+      <p class="text-[13px] font-semibold mb-2" id="rate-chart-title" style="color:var(--text-primary)">계열사별 평균 달성률</p>
+      <div id="rate-chart-wrap" style="height:220px; position:relative;">
+        <canvas id="rate-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
   <!-- 회사별 현황 한눈에 보기 -->
   <div id="company-overview-section" class="mb-6">
     <h2 class="text-[15px] font-semibold mb-3" style="color:var(--text-primary)">회사별 현황</h2>
@@ -63,6 +81,55 @@
 <script>
 let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PROGRESS_BY_KEY = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
 const YEAR = 2026;
+let statusChartInstance = null, rateChartInstance = null;
+
+// 기존 배지(STATUS_BADGE_CLASS)와 완전히 동일한 색으로 맞춰, 페이지 안에서 같은 상태가 다른 색으로 보이지 않도록 함
+const STATUS_CHART_COLOR = {
+  draft: "#6e6e73",
+  submitted: "#4c6fa5",
+  revision_requested: "#b9821f",
+  approved: "#2f9e5b",
+  locked: "#3a4356"
+};
+// 기존 rateColorClass와 동일한 90% / 60% 임계값 기준 색
+function rateBarColor(rate) {
+  if (rate === null || rate === undefined) return "#d1d1d6";
+  if (rate >= 90) return "#2f9e5b";
+  if (rate >= 60) return "#b9821f";
+  return "#c94a3c";
+}
+
+if (window.Chart) {
+  Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif";
+  Chart.defaults.color = "#6e6e73";
+  if (window.ChartDataLabels) {
+    Chart.register(ChartDataLabels);
+    Chart.defaults.set("plugins.datalabels", { display: false });
+  }
+}
+
+// 도넛 중앙에 전체 건수를 표시하는 플러그인 (정보 밀도를 높이기 위함)
+const centerTextPlugin = {
+  id: "centerText",
+  afterDraw(chart) {
+    if (chart.config.type !== "doughnut") return;
+    const total = chart.config.data.datasets[0].data.reduce((a, b) => a + b, 0);
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return;
+    const cx = (chartArea.left + chartArea.right) / 2;
+    const cy = (chartArea.top + chartArea.bottom) / 2;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#1d1d1f";
+    ctx.font = "bold 22px -apple-system, 'Apple SD Gothic Neo', sans-serif";
+    ctx.fillText(String(total), cx, cy - 9);
+    ctx.fillStyle = "#a1a1a6";
+    ctx.font = "11px -apple-system, 'Apple SD Gothic Neo', sans-serif";
+    ctx.fillText("전체 목표", cx, cy + 12);
+    ctx.restore();
+  }
+};
 
 (async function init() {
   PROFILE = await requireAuth();
@@ -141,8 +208,102 @@ function avgRate(goalsSubset) {
 function render() {
   renderSummary();
   renderRiskCards();
+  renderStatusChart();
+  renderRateChart();
   renderCompanyOverview();
   renderGroups();
+}
+
+function chartEmptyState(wrapId, canvasId, message) {
+  const wrap = document.getElementById(wrapId);
+  wrap.innerHTML = `<div class="h-full flex items-center justify-center text-[12.5px]" style="color:var(--text-tertiary)">${message}</div>`;
+}
+
+function renderStatusChart() {
+  if (statusChartInstance) { statusChartInstance.destroy(); statusChartInstance = null; }
+  if (ALL_GOALS.length === 0) { chartEmptyState("status-chart-wrap", "status-chart", "표시할 목표가 없습니다"); return; }
+  document.getElementById("status-chart-wrap").innerHTML = `<canvas id="status-chart"></canvas>`;
+
+  const order = ["draft", "submitted", "revision_requested", "approved", "locked"];
+  const counts = order.map(s => ALL_GOALS.filter(g => g.status === s).length);
+  // 0건인 상태는 도넛 조각에서 제외 (빈 슬라이스는 시각적으로 의미가 없음)
+  const labels = [], data = [], colors = [];
+  order.forEach((s, i) => {
+    if (counts[i] > 0) { labels.push(STATUS_LABEL[s]); data.push(counts[i]); colors.push(STATUS_CHART_COLOR[s]); }
+  });
+
+  const ctx = document.getElementById("status-chart").getContext("2d");
+  statusChartInstance = new Chart(ctx, {
+    type: "doughnut",
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: "#ffffff", borderWidth: 2 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "68%",
+      plugins: {
+        legend: { position: "right", labels: { boxWidth: 10, font: { size: 11.5 }, padding: 10 } },
+        tooltip: { callbacks: { label: (c) => `${c.label}: ${c.raw}건` } },
+        datalabels: { display: false }
+      }
+    },
+    plugins: [centerTextPlugin]
+  });
+}
+
+function renderRateChart() {
+  if (rateChartInstance) { rateChartInstance.destroy(); rateChartInstance = null; }
+
+  const holdco = isHoldco(PROFILE);
+  document.getElementById("rate-chart-title").textContent = holdco ? "계열사별 평균 달성률" : "사업부별 평균 달성률";
+
+  let groups;
+  if (holdco) {
+    const byCompany = {};
+    ALL_GOALS.forEach(g => {
+      if (!byCompany[g.company_id]) byCompany[g.company_id] = { name: g.companies.name, goals: [] };
+      byCompany[g.company_id].goals.push(g);
+    });
+    groups = Object.values(byCompany);
+  } else {
+    const byBu = {};
+    ALL_GOALS.forEach(g => {
+      const key = g.business_unit_id || "none";
+      const name = g.business_units ? g.business_units.name : "사업부 미지정";
+      if (!byBu[key]) byBu[key] = { name, goals: [] };
+      byBu[key].goals.push(g);
+    });
+    groups = Object.values(byBu);
+  }
+
+  const rows = groups.map(x => ({ name: x.name, rate: avgRate(x.goals) }))
+    .filter(x => x.rate !== null)
+    .sort((a, b) => b.rate - a.rate); // 달성률 내림차순: 잘하는 곳이 위로
+
+  if (rows.length === 0) { chartEmptyState("rate-chart-wrap", "rate-chart", "달성률을 계산할 실적 데이터가 없습니다"); return; }
+  document.getElementById("rate-chart-wrap").innerHTML = `<canvas id="rate-chart"></canvas>`;
+
+  const ctx = document.getElementById("rate-chart").getContext("2d");
+  rateChartInstance = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: rows.map(r => r.name),
+      datasets: [{ data: rows.map(r => r.rate), backgroundColor: rows.map(r => rateBarColor(r.rate)), borderRadius: 4, maxBarThickness: 26 }]
+    },
+    options: {
+      indexAxis: "y", // 가로 막대: 한글 라벨이 길어도 회전/잘림 없이 표시
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { beginAtZero: true, suggestedMax: 100, ticks: { callback: (v) => v + "%" }, grid: { color: "#f0f0f2" } },
+        y: { grid: { display: false } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => `달성률 ${c.raw}%` } },
+        datalabels: {
+          display: true, anchor: "end", align: "end", color: "#1d1d1f",
+          font: { size: 11, weight: "bold" }, formatter: (v) => v + "%"
+        }
+      }
+    }
+  });
 }
 
 function renderCompanyOverview() {
