@@ -30,6 +30,13 @@
 let PROFILE, YEAR = 2026, ALL_GOALS = [], SELECTED_GOAL_ID = null;
 const params = new URLSearchParams(location.search);
 
+// 지주사 담당자/관리자 화면에서 목표 목록을 회사 순서대로 보여주기 위한 고정 순서
+const COMPANY_ORDER = ["강원심층수", "크리스탈", "미머디", "에듀캠프", "대교D&S", "대교CNS"];
+function companyOrderIndex(name) {
+  const idx = COMPANY_ORDER.indexOf(name);
+  return idx === -1 ? COMPANY_ORDER.length : idx;
+}
+
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
@@ -45,6 +52,12 @@ async function loadGoalOptions() {
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   const { data } = await q;
   ALL_GOALS = data || [];
+  if (isHoldco(PROFILE)) {
+    ALL_GOALS.sort((a, b) => {
+      const ci = companyOrderIndex(a.companies.name) - companyOrderIndex(b.companies.name);
+      return ci !== 0 ? ci : (a.seq_no ?? 0) - (b.seq_no ?? 0);
+    });
+  }
   renderGoalList();
 }
 
