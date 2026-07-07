@@ -287,15 +287,15 @@ function renderGroups() {
         </a>`;
       }).join("");
 
-      return `<details class="acc" open>
-        <summary class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-[var(--surface-hover)]">
-          <span class="flex items-center gap-2 text-[13px] font-medium" style="color:var(--text-primary)">
+      return `<details class="acc mb-1.5" open>
+        <summary class="flex items-center justify-between px-3 py-2 rounded-lg" style="background:var(--accent-soft);border-left:3px solid var(--accent)">
+          <span class="flex items-center gap-2 text-[13px] font-semibold" style="color:var(--accent)">
             <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
             ${escapeHtml(bu.name)}<span class="text-[12px] font-normal" style="color:var(--text-tertiary)">· ${bu.goals.length}건</span>
           </span>
           <span class="badge ${rateColorClass(buRate)}">${buRate===null?'-':buRate+'%'}</span>
         </summary>
-        <div class="pl-4 pb-1">${rows}</div>
+        <div class="pl-4 pb-1 pt-1">${rows}</div>
       </details>`;
     }).join("");
 
