@@ -29,7 +29,7 @@ function renderNav(profile, active) {
   root.innerHTML = `
     <div class="sidebar-brand">
       <div class="name">대교홀딩스</div>
-      <div class="sub">SMART 사업계획 관리</div>
+      <div class="sub">SMART 사업계획 관리 웹서비스</div>
     </div>
     <nav class="sidebar-nav">
       ${links.map(l => `<a href="${l.href}" class="sidebar-link ${active===l.key?'active':''}">${ICONS[l.key]||''}<span>${l.label}</span></a>`).join("")}
