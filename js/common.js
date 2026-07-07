@@ -134,3 +134,30 @@ function periodsForYear(year, periodType) {
   }
   return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
 }
+
+// 해당 기간(월/분기) 실적의 입력 마감일을 계산한다.
+// 규칙: 월별 실적은 해당 월의 다음 달 말일까지, 분기별 실적은 해당 분기 종료월의 다음 달 말일까지 입력.
+// 예) 2026-01(월별) → 마감 2026-02-28 / 2026-Q1(분기별, 3월 종료) → 마감 2026-04-30
+function periodDeadline(period, periodType) {
+  const year = parseInt(period.slice(0, 4), 10);
+  let endMonth; // 해당 기간이 끝나는 월 (1~12)
+  if (periodType === "quarterly") {
+    const q = parseInt(period.replace(/^\d{4}-Q/, ""), 10);
+    endMonth = q * 3;
+  } else {
+    endMonth = parseInt(period.slice(5, 7), 10);
+  }
+  // endMonth+1이 마감 월(1-indexed). new Date(year, m, 0)은 0-indexed 월 m의 "0일" = (m-1) 0-indexed 월의 말일
+  // 마감 월(1-indexed, endMonth+1)의 말일 = new Date(year, endMonth+1, 0) (12월 초과 시 자동으로 다음해로 이월됨)
+  return new Date(year, endMonth + 1, 0, 23, 59, 59, 999);
+}
+
+// 지금(now) 시점 기준으로, 마감일이 지났는데도 실적이 입력되지 않은 기간 목록을 반환
+// entryExists(period) => 해당 기간에 실적 데이터가 있는지 판단하는 콜백
+function overduePeriods(periodType, year, entryExists, now) {
+  now = now || new Date();
+  return periodsForYear(year, periodType).filter(period => {
+    if (periodDeadline(period, periodType) >= now) return false;
+    return !entryExists(period);
+  });
+}

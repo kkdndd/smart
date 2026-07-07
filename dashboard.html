@@ -61,7 +61,7 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
+let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PROGRESS_BY_KEY = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
 const YEAR = 2026;
 
 (async function init() {
@@ -94,8 +94,10 @@ async function loadData() {
 
   const { data: progress } = await sb.from("progress_entries").select("*").in("goal_metric_id", metricIds).order("period", { ascending: false });
   LATEST_PROGRESS = {};
+  ALL_PROGRESS_BY_KEY = {};
   (progress || []).forEach(p => {
     if (!LATEST_PROGRESS[p.goal_metric_id]) LATEST_PROGRESS[p.goal_metric_id] = p;
+    ALL_PROGRESS_BY_KEY[p.goal_metric_id + "|" + p.period] = p;
   });
 
   const { data: periodTargets } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds);
@@ -110,6 +112,21 @@ function metricRate(metric) {
   return calcAchievementRate(metric, p.actual_value, p.milestone_achieved, override);
 }
 function goalMetrics(goal) { return ALL_METRICS.filter(m => m.goal_id === goal.id); }
+
+// 실적 데이터가 실제로 입력되어 있는지 (지표 유형에 따라 actual_value 또는 milestone_achieved로 판단)
+function hasRealEntry(entry) {
+  return !!entry && (entry.actual_value !== null || entry.milestone_achieved !== null);
+}
+
+// 해당 지표에서 마감일이 지났는데도 실적이 입력되지 않은 기간 목록
+function overdueMissingPeriods(metric) {
+  return overduePeriods(metric.period_type, YEAR, (period) => hasRealEntry(ALL_PROGRESS_BY_KEY[metric.id + "|" + period]));
+}
+
+// 목표(goal) 단위로, 마감이 지나 실적이 밀린 (지표, 기간) 쌍의 총 개수
+function overdueMissingCount(goal) {
+  return goalMetrics(goal).reduce((sum, m) => sum + overdueMissingPeriods(m).length, 0);
+}
 function goalRate(goal) {
   const rates = goalMetrics(goal).map(metricRate).filter(r => r !== null && r !== undefined);
   if (rates.length === 0) return null;
@@ -190,7 +207,11 @@ function renderSummary() {
 function renderRiskCards() {
   const atRisk = ALL_GOALS.filter(g => { const r = goalRate(g); return r !== null && r < 60; });
   const revisionNeeded = ALL_GOALS.filter(g => g.status === "revision_requested");
-  const noProgress = ALL_GOALS.filter(g => (g.status === "approved" || g.status === "locked") && goalMetrics(g).every(m => !LATEST_PROGRESS[m.id]));
+  // 마감일(월별: 다음달 말일 / 분기별: 분기 종료월의 다음달 말일)이 지났는데도 실적이 입력되지 않은 (지표·기간)이 있는 목표
+  const activeGoals = ALL_GOALS.filter(g => g.status === "approved" || g.status === "locked");
+  const overdueMap = new Map();
+  activeGoals.forEach(g => { const n = overdueMissingCount(g); if (n > 0) overdueMap.set(g.id, n); });
+  const noProgress = activeGoals.filter(g => overdueMap.has(g.id));
   // 실적은 입력되어 있지만, 해당 기간에 적용할 목표값(연간·기간별 모두)이 없어 달성률을 계산할 수 없는 지표가 있는 목표
   // → 위 두 위험 카드 어디에도 잡히지 않고 조용히 누락될 수 있어 별도로 표시
   const rateUnavailable = ALL_GOALS.filter(g => goalMetrics(g).some(m => {
@@ -201,21 +222,21 @@ function renderRiskCards() {
     return metricRate(m) === null || metricRate(m) === undefined;
   }));
 
-  const card = (title, list, tone, emptyMsg) => `
+  const card = (title, list, tone, emptyMsg, suffixFn) => `
     <div class="card risk-card p-4">
       <div class="flex items-center justify-between mb-2">
         <span class="text-[13px] font-semibold" style="color:var(--text-primary)">${title}</span>
         <span class="badge" style="background:${tone.bg};color:${tone.fg}">${list.length}건</span>
       </div>
       <div class="space-y-1.5 max-h-32 overflow-y-auto">
-        ${list.slice(0,5).map(g => `<a href="goal-detail.html?id=${g.id}" class="block text-[12.5px] truncate hover:underline" style="color:var(--text-secondary)">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}</a>`).join("") || `<p class="text-[12px]" style="color:var(--text-tertiary)">${emptyMsg}</p>`}
+        ${list.slice(0,5).map(g => `<a href="goal-detail.html?id=${g.id}" class="block text-[12.5px] truncate hover:underline" style="color:var(--text-secondary)">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}${suffixFn ? suffixFn(g) : ''}</a>`).join("") || `<p class="text-[12px]" style="color:var(--text-tertiary)">${emptyMsg}</p>`}
       </div>
     </div>`;
 
   document.getElementById("risk-cards").innerHTML =
     card("달성률 60% 미만", atRisk, { bg: "var(--red-soft)", fg: "var(--red)" }, "위험 목표가 없습니다") +
     card("수정요청 대기중", revisionNeeded, { bg: "var(--amber-soft)", fg: "var(--amber)" }, "없음") +
-    card("실적 미입력 목표", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "모두 입력됨") +
+    card("실적 미입력 목표 (마감 경과)", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "마감 경과 미입력 없음", (g) => ` <span style="color:var(--text-tertiary)">· ${overdueMap.get(g.id)}건 미입력</span>`) +
     card("목표값 미설정 (달성률 계산불가)", rateUnavailable, { bg: "#f0f0f2", fg: "#6e6e73" }, "없음");
 }
 
