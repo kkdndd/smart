@@ -41,7 +41,7 @@
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="summary-cards"></div>
 
   <!-- 경영진용 위험 신호 -->
-  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" id="risk-cards"></div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6" id="risk-cards"></div>
 
   <!-- 회사별 현황 한눈에 보기 -->
   <div id="company-overview-section" class="mb-6">
@@ -191,6 +191,15 @@ function renderRiskCards() {
   const atRisk = ALL_GOALS.filter(g => { const r = goalRate(g); return r !== null && r < 60; });
   const revisionNeeded = ALL_GOALS.filter(g => g.status === "revision_requested");
   const noProgress = ALL_GOALS.filter(g => (g.status === "approved" || g.status === "locked") && goalMetrics(g).every(m => !LATEST_PROGRESS[m.id]));
+  // 실적은 입력되어 있지만, 해당 기간에 적용할 목표값(연간·기간별 모두)이 없어 달성률을 계산할 수 없는 지표가 있는 목표
+  // → 위 두 위험 카드 어디에도 잡히지 않고 조용히 누락될 수 있어 별도로 표시
+  const rateUnavailable = ALL_GOALS.filter(g => goalMetrics(g).some(m => {
+    const isNumeric = (m.metric_type === "increasing" || m.metric_type === "decreasing");
+    if (!isNumeric) return false;
+    const p = LATEST_PROGRESS[m.id];
+    if (!p) return false;
+    return metricRate(m) === null || metricRate(m) === undefined;
+  }));
 
   const card = (title, list, tone, emptyMsg) => `
     <div class="card risk-card p-4">
@@ -206,7 +215,8 @@ function renderRiskCards() {
   document.getElementById("risk-cards").innerHTML =
     card("달성률 60% 미만", atRisk, { bg: "var(--red-soft)", fg: "var(--red)" }, "위험 목표가 없습니다") +
     card("수정요청 대기중", revisionNeeded, { bg: "var(--amber-soft)", fg: "var(--amber)" }, "없음") +
-    card("실적 미입력 목표", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "모두 입력됨");
+    card("실적 미입력 목표", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "모두 입력됨") +
+    card("목표값 미설정 (달성률 계산불가)", rateUnavailable, { bg: "#f0f0f2", fg: "#6e6e73" }, "없음");
 }
 
 function matchesSearch(g) {
@@ -256,7 +266,7 @@ function renderGroups() {
         </a>`;
       }).join("");
 
-      return `<details class="acc">
+      return `<details class="acc" open>
         <summary class="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-[var(--surface-hover)]">
           <span class="flex items-center gap-2 text-[13px] font-medium" style="color:var(--text-primary)">
             <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
@@ -268,7 +278,7 @@ function renderGroups() {
       </details>`;
     }).join("");
 
-    return `<details id="company-block-${companyId}" class="acc card p-2" ${entries.length <= 3 ? 'open' : ''}>
+    return `<details id="company-block-${companyId}" class="acc card p-2" open>
       <summary class="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-[var(--surface-hover)]">
         <span class="flex items-center gap-2 text-[14.5px] font-semibold" style="color:var(--text-primary)">
           <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
