@@ -81,11 +81,41 @@ const METRIC_FIELD_DEFS = [
       document.getElementById("create-goal-name").textContent = "· " + goal.strategy_name;
       renderFieldGrid(goal);
       const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", GOAL_ID);
-      renderMetricGrid(metrics);
+      const metricIds = (metrics||[]).map(x => x.id);
+      let periodTargetsByMetric = {};
+      if (metricIds.length) {
+        const { data: pts } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds);
+        (pts||[]).forEach(p => {
+          if (!periodTargetsByMetric[p.goal_metric_id]) periodTargetsByMetric[p.goal_metric_id] = {};
+          periodTargetsByMetric[p.goal_metric_id][p.period] = p.target_value;
+        });
+      }
+      renderMetricGrid(metrics, periodTargetsByMetric);
     }
   }
   await load();
 })();
+
+// 기간(YYYY-MM 또는 YYYY-Qn)을 "N월"/"N분기" 형태로 보기 좋게 변환
+function periodLabel(period) {
+  const monthMatch = period.match(/-(\d{2})$/);
+  if (monthMatch) return `${parseInt(monthMatch[1], 10)}월`;
+  const qMatch = period.match(/-Q(\d)$/);
+  if (qMatch) return `${qMatch[1]}분기`;
+  return period;
+}
+
+function periodTargetGridHtml(m, ptMap) {
+  const periods = periodsForYear(2026, m.period_type);
+  return periods.map(p => {
+    const current = ptMap && ptMap[p] !== undefined ? ptMap[p] : null;
+    return `<div class="border border-slate-200 rounded p-1.5">
+      <p class="text-[10px] text-slate-400 mb-0.5">${periodLabel(p)}</p>
+      <p class="text-[10px] rounded px-1 py-0.5 mb-0.5" style="background:var(--surface-hover);color:var(--text-secondary)">${current ?? '-'}</p>
+      <input type="number" step="any" class="mp-input w-full border border-slate-300 rounded px-1 py-0.5 text-xs" data-period="${p}" placeholder="변경 후" disabled />
+    </div>`;
+  }).join("");
+}
 
 function metricCurrentDisplay(m, key) {
   if (key === "metric_type") return escapeHtml(METRIC_TYPE_LABEL[m.metric_type] || m.metric_type || "-");
@@ -103,12 +133,15 @@ function metricInputHtml(f, m) {
   return `<input type="${type}" step="any" class="mf-input w-full border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="변경 후 값 입력" disabled />`;
 }
 
-function renderMetricGrid(metrics) {
+function renderMetricGrid(metrics, periodTargetsByMetric) {
   const section = document.getElementById("metric-section");
   const root = document.getElementById("metric-grid");
   if (!metrics || metrics.length === 0) { section.classList.add("hidden"); root.innerHTML = ""; return; }
   section.classList.remove("hidden");
-  root.innerHTML = metrics.map(m => `
+  root.innerHTML = metrics.map(m => {
+    const isNumeric = (m.metric_type === "increasing" || m.metric_type === "decreasing");
+    const ptMap = (periodTargetsByMetric && periodTargetsByMetric[m.id]) || {};
+    return `
     <div class="border border-slate-200 rounded p-3" data-metric-id="${m.id}">
       <p class="text-sm font-medium text-slate-800 mb-2">핵심지표: ${escapeHtml(m.metric_name)}</p>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -123,8 +156,16 @@ function renderMetricGrid(metrics) {
           </div>
         `).join("")}
       </div>
-    </div>
-  `).join("");
+      ${isNumeric ? `
+      <div class="mt-3 border-t border-slate-200 pt-2">
+        <label class="flex items-center gap-1.5 text-xs font-medium text-slate-500 mb-2">
+          <input type="checkbox" class="mp-check" />
+          <span>월별/분기별 목표값 변경 (변경할 기간만 입력, 나머지는 비워두면 유지)</span>
+        </label>
+        <div class="mp-grid hidden grid grid-cols-3 sm:grid-cols-4 gap-2">${periodTargetGridHtml(m, ptMap)}</div>
+      </div>` : ''}
+    </div>`;
+  }).join("");
   root.querySelectorAll(".mf-check").forEach(cb => {
     cb.addEventListener("change", () => {
       const wrap = cb.closest("[data-field-wrap]");
@@ -133,6 +174,17 @@ function renderMetricGrid(metrics) {
       input.classList.toggle("opacity-50", !cb.checked);
       if (cb.checked) input.focus();
       else input.value = "";
+    });
+  });
+  root.querySelectorAll(".mp-check").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const card = cb.closest("[data-metric-id]");
+      const grid = card.querySelector(".mp-grid");
+      grid.classList.toggle("hidden", !cb.checked);
+      grid.querySelectorAll(".mp-input").forEach(inp => {
+        inp.disabled = !cb.checked;
+        inp.classList.toggle("opacity-50", !cb.checked);
+      });
     });
   });
 }
@@ -170,6 +222,7 @@ document.getElementById("submit-cr")?.addEventListener("click", async () => {
     if (!v) { missingValue = true; return; }
     proposed[wrap.dataset.field] = v;
   });
+  const proposedPeriodChanges = {};
   document.querySelectorAll("#metric-grid > div[data-metric-id]").forEach(card => {
     const metricId = card.dataset.metricId;
     const fields = {};
@@ -181,14 +234,25 @@ document.getElementById("submit-cr")?.addEventListener("click", async () => {
       fields[checkbox.dataset.field] = v;
     });
     if (Object.keys(fields).length) proposedMetrics[metricId] = fields;
+
+    const mpCheck = card.querySelector(".mp-check");
+    if (mpCheck && mpCheck.checked) {
+      const periods = {};
+      card.querySelectorAll(".mp-input").forEach(inp => {
+        const v = inp.value;
+        if (v !== "" && v !== null) periods[inp.dataset.period] = v;
+      });
+      if (Object.keys(periods).length) proposedPeriodChanges[metricId] = periods;
+    }
   });
   if (missingValue) { alert("변경 체크한 항목에는 변경 후 값을 입력해주세요."); return; }
-  if (Object.keys(proposed).length === 0 && Object.keys(proposedMetrics).length === 0) { alert("변경할 항목을 하나 이상 체크하고 값을 입력해주세요."); return; }
+  if (Object.keys(proposed).length === 0 && Object.keys(proposedMetrics).length === 0 && Object.keys(proposedPeriodChanges).length === 0) { alert("변경할 항목을 하나 이상 체크하고 값을 입력해주세요."); return; }
   const { error } = await sb.from("change_requests").insert({
     goal_id: GOAL_ID, requested_by: PROFILE.id,
     reason: document.getElementById("reason").value,
     proposed_changes: proposed,
-    proposed_metric_changes: Object.keys(proposedMetrics).length ? proposedMetrics : null
+    proposed_metric_changes: Object.keys(proposedMetrics).length ? proposedMetrics : null,
+    proposed_period_target_changes: Object.keys(proposedPeriodChanges).length ? proposedPeriodChanges : null
   });
   if (error) { alert("제출 실패: " + error.message); return; }
   alert("변경요청이 제출되었습니다.");
@@ -201,11 +265,18 @@ async function load() {
   if (error) { console.error(error); return; }
 
   const metricIds = new Set();
-  (data||[]).forEach(cr => Object.keys(cr.proposed_metric_changes || {}).forEach(id => metricIds.add(id)));
+  (data||[]).forEach(cr => {
+    Object.keys(cr.proposed_metric_changes || {}).forEach(id => metricIds.add(id));
+    Object.keys(cr.proposed_period_target_changes || {}).forEach(id => metricIds.add(id));
+  });
   let metricsById = {};
+  let periodTargetsByKey = {};
   if (metricIds.size) {
-    const { data: metrics } = await sb.from("goal_metrics").select("*").in("id", Array.from(metricIds));
+    const idsArr = Array.from(metricIds);
+    const { data: metrics } = await sb.from("goal_metrics").select("*").in("id", idsArr);
     (metrics||[]).forEach(m => metricsById[m.id] = m);
+    const { data: pts } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", idsArr);
+    (pts||[]).forEach(p => { periodTargetsByKey[p.goal_metric_id + "|" + p.period] = p.target_value; });
   }
 
   document.getElementById("list-root").innerHTML = (data||[]).map(cr => {
@@ -264,7 +335,30 @@ async function load() {
       });
     });
 
-    const totalCount = Object.keys(cr.proposed_changes||{}).length + metricChangeRows.length;
+    const periodChangeRows = [];
+    Object.entries(cr.proposed_period_target_changes || {}).forEach(([metricId, periods]) => {
+      const m = metricsById[metricId];
+      const metricLabel = m ? m.metric_name : "(삭제된 지표)";
+      Object.entries(periods).forEach(([period, newVal]) => {
+        const oldVal = periodTargetsByKey[metricId + "|" + period];
+        const oldDisplay = (oldVal !== undefined && oldVal !== null) ? escapeHtml(String(oldVal)) : '<span style="color:var(--text-tertiary)">(미설정, 연간목표값 사용)</span>';
+        periodChangeRows.push(`<div class="border border-slate-200 rounded p-2 mb-1.5">
+          <p class="text-[11px] font-medium mb-1" style="color:var(--text-tertiary)">핵심지표 [${escapeHtml(metricLabel)}] · ${periodLabel(period)} 목표값</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <div>
+              <p class="text-[10px] mb-0.5" style="color:var(--text-tertiary)">변경 전</p>
+              <p class="rounded p-1.5" style="background:var(--red-soft);color:var(--text-secondary)">${oldDisplay}</p>
+            </div>
+            <div>
+              <p class="text-[10px] mb-0.5" style="color:var(--text-tertiary)">변경 후</p>
+              <p class="rounded p-1.5" style="background:var(--green-soft);color:var(--text-secondary)">${escapeHtml(String(newVal))}</p>
+            </div>
+          </div>
+        </div>`);
+      });
+    });
+
+    const totalCount = Object.keys(cr.proposed_changes||{}).length + metricChangeRows.length + periodChangeRows.length;
 
     return `<div class="card p-4">
       <div class="flex items-center justify-between mb-1">
@@ -274,7 +368,7 @@ async function load() {
       <p class="text-sm text-slate-600 mb-1">사유: ${escapeHtml(cr.reason||'(작성 안 함)')}</p>
       <p class="text-xs text-slate-400 mb-3">요청자: ${cr.requester?escapeHtml(cr.requester.name||cr.requester.email):''} · ${new Date(cr.created_at).toLocaleString('ko-KR')}</p>
       <p class="text-xs font-medium mb-1.5" style="color:var(--text-secondary)">변경 요청 항목 (${totalCount}건)</p>
-      ${changeRows}${metricChangeRows.join("")}
+      ${changeRows}${metricChangeRows.join("")}${periodChangeRows.join("")}
       ${totalCount === 0 ? '<p class="text-xs text-slate-400">변경 항목 없음</p>' : ''}
       ${canDecide ? `<div class="flex gap-2 mt-3">
         <button onclick="decide('${cr.id}', true)" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인 및 적용</button>
@@ -296,6 +390,13 @@ async function decide(crId, approve) {
     for (const [metricId, fields] of Object.entries(cr.proposed_metric_changes || {})) {
       const { error: mErr } = await sb.from("goal_metrics").update(fields).eq("id", metricId);
       if (mErr) { alert("핵심지표 적용 실패: " + mErr.message); return; }
+    }
+    for (const [metricId, periods] of Object.entries(cr.proposed_period_target_changes || {})) {
+      const rows = Object.entries(periods).map(([period, target_value]) => ({ goal_metric_id: metricId, period, target_value }));
+      if (rows.length) {
+        const { error: ptErr } = await sb.from("goal_period_targets").upsert(rows, { onConflict: "goal_metric_id,period" });
+        if (ptErr) { alert("월별/분기별 목표값 적용 실패: " + ptErr.message); return; }
+      }
     }
   }
   const { error: crErr } = await sb.from("change_requests").update({
