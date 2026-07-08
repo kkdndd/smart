@@ -52,6 +52,13 @@ let PROFILE;
 const params = new URLSearchParams(location.search);
 const GOAL_ID = params.get("goal");
 
+// 변경요청 작성 시점의 "현재 값"을 기억해두기 위한 캐시. 승인되면 원본 행이 새 값으로
+// 덮어써지므로, 승인 이후에도 "변경 전" 값을 정확히 보여주려면 요청 제출 시점에
+// 이 값들을 함께 저장해둬야 한다 (previous_* 컬럼).
+let CURRENT_GOAL = null;
+let CURRENT_METRICS_BY_ID = {};
+let CURRENT_PERIOD_TARGETS_BY_METRIC = {};
+
 const FIELD_DEFS = [
   { key: "strategy_name", label: "전략(목표)" },
   { key: "specific_text", label: "S · Specific" },
@@ -77,10 +84,12 @@ const METRIC_FIELD_DEFS = [
   if (GOAL_ID && !isHoldco(PROFILE)) {
     const { data: goal } = await sb.from("goals").select("*").eq("id", GOAL_ID).single();
     if (goal) {
+      CURRENT_GOAL = goal;
       document.getElementById("create-section").classList.remove("hidden");
       document.getElementById("create-goal-name").textContent = "· " + goal.strategy_name;
       renderFieldGrid(goal);
       const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", GOAL_ID);
+      (metrics||[]).forEach(m => CURRENT_METRICS_BY_ID[m.id] = m);
       const metricIds = (metrics||[]).map(x => x.id);
       let periodTargetsByMetric = {};
       if (metricIds.length) {
@@ -90,6 +99,7 @@ const METRIC_FIELD_DEFS = [
           periodTargetsByMetric[p.goal_metric_id][p.period] = p.target_value;
         });
       }
+      CURRENT_PERIOD_TARGETS_BY_METRIC = periodTargetsByMetric;
       renderMetricGrid(metrics, periodTargetsByMetric);
     }
   }
@@ -213,7 +223,9 @@ function renderFieldGrid(goal) {
 
 document.getElementById("submit-cr")?.addEventListener("click", async () => {
   const proposed = {};
+  const previous = {};
   const proposedMetrics = {};
+  const previousMetrics = {};
   let missingValue = false;
   document.querySelectorAll("#field-grid > div").forEach(wrap => {
     const checked = wrap.querySelector(".field-check").checked;
@@ -221,28 +233,38 @@ document.getElementById("submit-cr")?.addEventListener("click", async () => {
     const v = wrap.querySelector(".field-input").value.trim();
     if (!v) { missingValue = true; return; }
     proposed[wrap.dataset.field] = v;
+    previous[wrap.dataset.field] = CURRENT_GOAL ? (CURRENT_GOAL[wrap.dataset.field] ?? null) : null;
   });
   const proposedPeriodChanges = {};
+  const previousPeriodChanges = {};
   document.querySelectorAll("#metric-grid > div[data-metric-id]").forEach(card => {
     const metricId = card.dataset.metricId;
     const fields = {};
+    const prevFields = {};
     card.querySelectorAll("[data-field-wrap]").forEach(wrap => {
       const checkbox = wrap.querySelector(".mf-check");
       if (!checkbox.checked) return;
       const v = wrap.querySelector(".mf-input").value;
       if (v === null || String(v).trim() === "") { missingValue = true; return; }
       fields[checkbox.dataset.field] = v;
+      const curMetric = CURRENT_METRICS_BY_ID[metricId];
+      prevFields[checkbox.dataset.field] = curMetric ? (curMetric[checkbox.dataset.field] ?? null) : null;
     });
-    if (Object.keys(fields).length) proposedMetrics[metricId] = fields;
+    if (Object.keys(fields).length) { proposedMetrics[metricId] = fields; previousMetrics[metricId] = prevFields; }
 
     const mpCheck = card.querySelector(".mp-check");
     if (mpCheck && mpCheck.checked) {
       const periods = {};
+      const prevPeriods = {};
+      const curPtMap = CURRENT_PERIOD_TARGETS_BY_METRIC[metricId] || {};
       card.querySelectorAll(".mp-input").forEach(inp => {
         const v = inp.value;
-        if (v !== "" && v !== null) periods[inp.dataset.period] = v;
+        if (v !== "" && v !== null) {
+          periods[inp.dataset.period] = v;
+          prevPeriods[inp.dataset.period] = curPtMap[inp.dataset.period] ?? null;
+        }
       });
-      if (Object.keys(periods).length) proposedPeriodChanges[metricId] = periods;
+      if (Object.keys(periods).length) { proposedPeriodChanges[metricId] = periods; previousPeriodChanges[metricId] = prevPeriods; }
     }
   });
   if (missingValue) { alert("변경 체크한 항목에는 변경 후 값을 입력해주세요."); return; }
@@ -251,8 +273,11 @@ document.getElementById("submit-cr")?.addEventListener("click", async () => {
     goal_id: GOAL_ID, requested_by: PROFILE.id,
     reason: document.getElementById("reason").value,
     proposed_changes: proposed,
+    previous_changes: Object.keys(previous).length ? previous : null,
     proposed_metric_changes: Object.keys(proposedMetrics).length ? proposedMetrics : null,
-    proposed_period_target_changes: Object.keys(proposedPeriodChanges).length ? proposedPeriodChanges : null
+    previous_metric_changes: Object.keys(previousMetrics).length ? previousMetrics : null,
+    proposed_period_target_changes: Object.keys(proposedPeriodChanges).length ? proposedPeriodChanges : null,
+    previous_period_target_changes: Object.keys(previousPeriodChanges).length ? previousPeriodChanges : null
   });
   if (error) { alert("제출 실패: " + error.message); return; }
   alert("변경요청이 제출되었습니다.");
@@ -285,7 +310,8 @@ async function load() {
     const changeRows = Object.entries(cr.proposed_changes || {}).map(([key, newVal]) => {
       const def = FIELD_DEFS.find(f => f.key === key);
       const label = def ? def.label : key;
-      const oldVal = goal[key];
+      const hasSnapshot = cr.previous_changes && Object.prototype.hasOwnProperty.call(cr.previous_changes, key);
+      const oldVal = hasSnapshot ? cr.previous_changes[key] : goal[key];
       return `<div class="border border-slate-200 rounded p-2 mb-1.5">
         <p class="text-[11px] font-medium mb-1" style="color:var(--text-tertiary)">${escapeHtml(label)}</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
@@ -305,18 +331,21 @@ async function load() {
     Object.entries(cr.proposed_metric_changes || {}).forEach(([metricId, fields]) => {
       const m = metricsById[metricId];
       const metricLabel = m ? m.metric_name : "(삭제된 지표)";
+      const prevFields = (cr.previous_metric_changes && cr.previous_metric_changes[metricId]) || null;
       Object.entries(fields).forEach(([key, newVal]) => {
         const def = METRIC_FIELD_DEFS.find(f => f.key === key);
         const label = def ? def.label : key;
+        const hasSnapshot = prevFields && Object.prototype.hasOwnProperty.call(prevFields, key);
+        const oldRaw = hasSnapshot ? prevFields[key] : (m ? m[key] : undefined);
         let oldDisplay, newDisplay;
         if (key === "metric_type") {
-          oldDisplay = m ? escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||m.metric_type) : "-";
+          oldDisplay = oldRaw ? escapeHtml(METRIC_TYPE_LABEL[oldRaw]||oldRaw) : "-";
           newDisplay = escapeHtml(METRIC_TYPE_LABEL[newVal] || newVal);
         } else if (key === "period_type") {
-          oldDisplay = m ? (m.period_type === "quarterly" ? "분기별" : "월별") : "-";
+          oldDisplay = oldRaw ? (oldRaw === "quarterly" ? "분기별" : "월별") : "-";
           newDisplay = newVal === "quarterly" ? "분기별" : "월별";
         } else {
-          oldDisplay = (m && m[key] !== null && m[key] !== undefined && m[key] !== "") ? escapeHtml(String(m[key])) : '<span style="color:var(--text-tertiary)">(없음)</span>';
+          oldDisplay = (oldRaw !== null && oldRaw !== undefined && oldRaw !== "") ? escapeHtml(String(oldRaw)) : '<span style="color:var(--text-tertiary)">(없음)</span>';
           newDisplay = escapeHtml(String(newVal));
         }
         metricChangeRows.push(`<div class="border border-slate-200 rounded p-2 mb-1.5">
@@ -339,8 +368,10 @@ async function load() {
     Object.entries(cr.proposed_period_target_changes || {}).forEach(([metricId, periods]) => {
       const m = metricsById[metricId];
       const metricLabel = m ? m.metric_name : "(삭제된 지표)";
+      const prevPeriods = (cr.previous_period_target_changes && cr.previous_period_target_changes[metricId]) || null;
       Object.entries(periods).forEach(([period, newVal]) => {
-        const oldVal = periodTargetsByKey[metricId + "|" + period];
+        const hasSnapshot = prevPeriods && Object.prototype.hasOwnProperty.call(prevPeriods, period);
+        const oldVal = hasSnapshot ? prevPeriods[period] : periodTargetsByKey[metricId + "|" + period];
         const oldDisplay = (oldVal !== undefined && oldVal !== null) ? escapeHtml(String(oldVal)) : '<span style="color:var(--text-tertiary)">(미설정, 연간목표값 사용)</span>';
         periodChangeRows.push(`<div class="border border-slate-200 rounded p-2 mb-1.5">
           <p class="text-[11px] font-medium mb-1" style="color:var(--text-tertiary)">핵심지표 [${escapeHtml(metricLabel)}] · ${periodLabel(period)} 목표값</p>
