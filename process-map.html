@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>프로세스 맵 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
+<script src="js/config.js"></script>
+</head>
+<body class="min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+  <div>
+    <h1 class="text-lg font-bold" style="color:var(--text-primary)">프로세스 맵</h1>
+    <p class="text-sm mt-1" style="color:var(--text-secondary)">사업계획 작성부터 진행실적 관리까지 전체 업무 흐름입니다. 각 단계를 클릭하면 해당 화면으로 이동합니다.</p>
+  </div>
+
+  <!-- 흐름도 -->
+  <div class="card p-5 overflow-x-auto">
+    <div id="flow-root" class="flex items-stretch gap-2 min-w-[900px]"></div>
+  </div>
+
+  <!-- 단계별 상세 설명 -->
+  <div id="detail-root" class="space-y-3"></div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE;
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "process");
+  render();
+})();
+
+function steps() {
+  const holdco = isHoldco(PROFILE);
+  return [
+    {
+      badgeStatus: "draft",
+      title: "① 목표 작성",
+      desc: "SMART(S·M·A·R·T) 형식으로 계열사 사업계획 목표를 작성하고 핵심지표(KPI)를 등록합니다. 완료 전까지는 [임시저장] 상태로 자유롭게 수정할 수 있습니다.",
+      href: "goal-form.html",
+      linkLabel: "새 목표 작성 바로가기",
+      owner: "계열사 담당자",
+      clickable: !holdco
+    },
+    {
+      badgeStatus: "submitted",
+      title: "② 검토 제출",
+      desc: "작성한 목표를 홀딩스에 제출합니다. 검토 전이라면 [제출취소]로 임시저장 상태로 되돌려 다시 수정할 수 있습니다.",
+      href: "goals.html",
+      linkLabel: "사업계획 목표 목록 바로가기",
+      owner: "계열사 담당자",
+      clickable: true
+    },
+    {
+      badgeStatus: "revision_requested",
+      title: "③ 홀딩스 검토",
+      desc: "홀딩스 담당자가 제출된 목표를 검토해 승인하거나, 보완이 필요하면 의견과 함께 수정요청합니다. 수정요청을 받으면 다시 ①·②단계로 돌아갑니다.",
+      href: "review.html",
+      linkLabel: "검토/승인 화면 바로가기",
+      owner: "지주사 담당자",
+      clickable: holdco
+    },
+    {
+      badgeStatus: "approved",
+      title: "④ 승인 완료",
+      desc: "목표가 최종 확정됩니다. 승인 이후 목표나 핵심지표를 고쳐야 한다면 [변경요청]을 통해서만 수정할 수 있습니다.",
+      href: "goals.html",
+      linkLabel: "사업계획 목표 목록 바로가기",
+      owner: "공통",
+      clickable: true
+    },
+    {
+      badgeStatus: null,
+      title: "⑤ 진행실적 입력",
+      desc: "승인된 목표의 핵심지표에 대해 매월 또는 매분기 실적을 입력합니다. 마감일이 지나면 이메일 알림이 발송되고 대시보드 위험 카드에 표시됩니다.",
+      href: "progress.html",
+      linkLabel: "진행실적 입력 바로가기",
+      owner: "계열사 담당자",
+      clickable: true
+    },
+    {
+      badgeStatus: null,
+      title: "⑥ 변경요청 (필요 시)",
+      desc: "승인완료 · 잠김 상태의 목표를 수정해야 할 때 변경요청을 제출합니다. 홀딩스가 승인해야 실제 목표에 반영됩니다.",
+      href: "change-requests.html",
+      linkLabel: "변경요청 화면 바로가기",
+      owner: "공통",
+      clickable: true
+    }
+  ];
+}
+
+function flowCardHtml(s, i, total) {
+  const badge = s.badgeStatus
+    ? `<span class="badge ${STATUS_BADGE_CLASS[s.badgeStatus]} mb-2">${STATUS_LABEL[s.badgeStatus]}</span>`
+    : `<span class="badge mb-2" style="background:var(--accent-soft);color:var(--accent)">진행 관리</span>`;
+  const inner = `
+    <div class="card p-3 h-full flex flex-col ${s.clickable ? 'hover:shadow-md transition-shadow cursor-pointer' : 'opacity-60'}" style="min-width:170px">
+      ${badge}
+      <p class="text-[13px] font-semibold mb-1" style="color:var(--text-primary)">${s.title}</p>
+      <p class="text-[11px] mb-2" style="color:var(--text-tertiary)">${escapeHtml(s.owner)}</p>
+      <p class="text-[11px] leading-relaxed flex-1" style="color:var(--text-secondary)">${escapeHtml(s.desc.split(".")[0])}.</p>
+      ${s.clickable ? `<p class="text-[11px] font-medium mt-2" style="color:var(--accent)">바로가기 →</p>` : `<p class="text-[11px] mt-2" style="color:var(--text-tertiary)">열람 권한 없음</p>`}
+    </div>`;
+  const card = s.clickable ? `<a href="${s.href}" class="block flex-1">${inner}</a>` : `<div class="flex-1">${inner}</div>`;
+  const arrow = i < total - 1 ? `<div class="flex items-center px-1" style="color:var(--text-tertiary)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m0 0l-6-6m6 6l-6 6"/></svg>
+    </div>` : '';
+  return `<div class="flex-1 flex">${card}</div>${arrow}`;
+}
+
+function detailCardHtml(s) {
+  const badge = s.badgeStatus
+    ? `<span class="badge ${STATUS_BADGE_CLASS[s.badgeStatus]}">${STATUS_LABEL[s.badgeStatus]}</span>`
+    : `<span class="badge" style="background:var(--accent-soft);color:var(--accent)">진행 관리</span>`;
+  return `<div class="card p-4">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+      <div class="flex items-center gap-2">
+        <p class="font-semibold text-sm" style="color:var(--text-primary)">${s.title}</p>
+        ${badge}
+      </div>
+      <span class="text-[11px] px-2 py-0.5 rounded-full" style="background:var(--surface-hover);color:var(--text-secondary)">${escapeHtml(s.owner)}</span>
+    </div>
+    <p class="text-[13px] leading-relaxed mb-3" style="color:var(--text-secondary)">${escapeHtml(s.desc)}</p>
+    ${s.clickable
+      ? `<a href="${s.href}" class="btn btn-primary !text-[12.5px]">${escapeHtml(s.linkLabel)} →</a>`
+      : `<p class="text-[12px]" style="color:var(--text-tertiary)">이 단계는 ${escapeHtml(s.owner)}만 접근할 수 있는 화면입니다.</p>`}
+  </div>`;
+}
+
+function render() {
+  const s = steps();
+  document.getElementById("flow-root").innerHTML = s.map((step, i) => flowCardHtml(step, i, s.length)).join("");
+  document.getElementById("detail-root").innerHTML = s.map(detailCardHtml).join("");
+}
+</script>
+</body>
+</html>

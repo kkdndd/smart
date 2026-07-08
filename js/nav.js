@@ -6,11 +6,13 @@ const ICONS = {
   review: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>',
   cr: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3-3m-3 3l3 3m5 2v1a4 4 0 01-4 4H8"/></svg>',
   admin: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>',
+  process: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h9a3 3 0 013 3v0a3 3 0 01-3 3H8a3 3 0 00-3 3v0a3 3 0 003 3h12M4 6a1.5 1.5 0 100-.001M20 6a1.5 1.5 0 100-.001M20 18a1.5 1.5 0 100-.001"/></svg>',
 };
 
 function renderNav(profile, active) {
   const links = [
     { href: "dashboard.html", label: "대시보드", key: "dashboard" },
+    { href: "process-map.html", label: "프로세스 맵", key: "process" },
     { href: "goals.html", label: "사업계획 목표", key: "goals" },
     { href: "progress.html", label: "진행실적 입력", key: "progress" },
   ];

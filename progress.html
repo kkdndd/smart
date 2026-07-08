@@ -97,7 +97,7 @@ async function loadGoalContext(goalId) {
     .eq("id", goalId).single();
   if (error || !goal) { ctx.classList.add("hidden"); return; }
 
-  const field = (label, val) => `<div><dt class="text-[11px] font-medium mb-0.5" style="color:var(--text-tertiary)">${label}</dt><dd class="text-slate-700">${nl2br(val) || '<span style="color:var(--text-tertiary)">-</span>'}</dd></div>`;
+  const field = (label, val, bg, fg) => `<div><dt class="mb-0.5"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold" style="background:${bg};color:${fg}">${label}</span></dt><dd class="text-slate-700">${nl2br(val) || '<span style="color:var(--text-tertiary)">-</span>'}</dd></div>`;
 
   ctx.classList.remove("hidden");
   ctx.innerHTML = `
@@ -107,11 +107,11 @@ async function loadGoalContext(goalId) {
     </div>
     <p class="text-xs text-slate-400 mb-3">${escapeHtml(goal.companies?.name||'')} · ${escapeHtml(goal.business_units?.name||'사업부 미지정')}</p>
     <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-      ${field("S · Specific", goal.specific_text)}
-      ${field("M · Measurable", goal.measurable_text)}
-      ${field("A · Achievable", goal.achievable_text)}
-      ${field("R · Relevant", goal.relevant_text)}
-      ${field("T · Time-bound", goal.timebound_text)}
+      ${field("S · Specific", goal.specific_text, "#EEF0F4", "#3A4356")}
+      ${field("M · Measurable", goal.measurable_text, "#EAF0F8", "#4C6FA5")}
+      ${field("A · Achievable", goal.achievable_text, "#E7F5EC", "#2F9E5B")}
+      ${field("R · Relevant", goal.relevant_text, "#FAF1DE", "#C98A1F")}
+      ${field("T · Time-bound", goal.timebound_text, "#FBEAE7", "#C94A3C")}
     </dl>`;
 }
 
