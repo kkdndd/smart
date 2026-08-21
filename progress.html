@@ -12,7 +12,7 @@
 <body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
-  <h1 class="text-lg font-bold text-slate-800">진행실적 입력</h1>
+  <h1 class="text-lg font-bold text-slate-800" id="page-title"></h1>
   <div class="card p-2">
     <div class="flex items-center justify-between px-3 py-2">
       <label class="text-sm text-slate-600">목표를 선택하면 아래에 실적 입력란이 나타납니다</label>
@@ -27,7 +27,7 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, YEAR = 2026, ALL_GOALS = [], SELECTED_GOAL_ID = null;
+let PROFILE, YEAR = getSelectedYear(), ALL_GOALS = [], SELECTED_GOAL_ID = null;
 const params = new URLSearchParams(location.search);
 
 // 지주사 담당자/관리자 화면에서 목표 목록을 회사 순서대로 보여주기 위한 고정 순서
@@ -41,6 +41,7 @@ function companyOrderIndex(name) {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "progress");
+  document.getElementById("page-title").textContent = `진행실적 입력 (${YEAR}년)`;
   await loadGoalOptions();
   const preselect = params.get("goal");
   selectGoal(preselect && ALL_GOALS.some(g => g.id === preselect) ? preselect : (ALL_GOALS[0]?.id || null));

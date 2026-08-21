@@ -161,3 +161,28 @@ function overduePeriods(periodType, year, entryExists, now) {
     return !entryExists(period);
   });
 }
+
+// ---- 사업연도 선택 (사이드바 드롭다운에서 고른 연도를 전 페이지에서 공유) ----
+const SELECTED_YEAR_KEY = "smart_selected_year";
+
+// 현재 선택된 사업연도. 아직 고른 적이 없으면 이번 해(달력 기준)를 기본값으로 사용
+function getSelectedYear() {
+  const stored = parseInt(localStorage.getItem(SELECTED_YEAR_KEY), 10);
+  return isNaN(stored) ? new Date().getFullYear() : stored;
+}
+
+function setSelectedYear(year) {
+  localStorage.setItem(SELECTED_YEAR_KEY, String(year));
+}
+
+// 연도 드롭다운에 보여줄 선택지: 작년 ~ 2년 뒤(다음 연도 계획을 미리 준비할 수 있도록)
+// 이미 선택되어 있던 연도가 이 범위 밖이면 그 값도 포함시켜 목록에서 사라지지 않게 한다
+function yearOptions() {
+  const base = new Date().getFullYear();
+  const selected = getSelectedYear();
+  const lo = Math.min(base - 1, selected);
+  const hi = Math.max(base + 2, selected);
+  const arr = [];
+  for (let y = lo; y <= hi; y++) arr.push(y);
+  return arr;
+}

@@ -116,7 +116,9 @@ function periodLabel(period) {
 }
 
 function periodTargetGridHtml(m, ptMap) {
-  const periods = periodsForYear(2026, m.period_type);
+  // 변경요청은 항상 특정 기존 목표에 대한 것이므로, 사이드바에서 보고 있는 연도가 아니라
+  // 그 목표 본래의 연도를 기준으로 기간 목록을 만든다.
+  const periods = periodsForYear(CURRENT_GOAL.year, m.period_type);
   return periods.map(p => {
     const current = ptMap && ptMap[p] !== undefined ? ptMap[p] : null;
     return `<div class="border border-slate-200 rounded p-1.5">

@@ -33,6 +33,12 @@ function renderNav(profile, active) {
       <div class="name">대교홀딩스</div>
       <div class="sub">SMART 사업계획 관리 웹서비스</div>
     </div>
+    <div class="sidebar-year">
+      <label for="year-select">사업연도</label>
+      <select id="year-select" onchange="onYearChange(this.value)">
+        ${yearOptions().map(y => `<option value="${y}" ${y === getSelectedYear() ? "selected" : ""}>${y}년</option>`).join("")}
+      </select>
+    </div>
     <nav class="sidebar-nav">
       ${links.map(l => `<a href="${l.href}" class="sidebar-link ${active===l.key?'active':''}">${ICONS[l.key]||''}<span>${l.label}</span></a>`).join("")}
     </nav>
@@ -43,6 +49,12 @@ function renderNav(profile, active) {
     </div>`;
 
   document.body.classList.add("has-sidebar");
+}
+
+// 사이드바 연도 선택 변경 시: 선택값을 저장하고 현재 화면을 새로고침해 그 연도 기준으로 다시 불러온다
+function onYearChange(newYear) {
+  setSelectedYear(parseInt(newYear, 10));
+  location.reload();
 }
 
 function roleLabel(role) {

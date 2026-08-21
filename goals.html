@@ -13,7 +13,7 @@
 <div id="nav-root"></div>
 <div class="max-w-6xl mx-auto px-4 py-6">
   <div class="flex items-center justify-between mb-4">
-    <h1 class="text-lg font-bold text-slate-800">2026년 사업계획 목표</h1>
+    <h1 class="text-lg font-bold text-slate-800" id="page-title"></h1>
     <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
   </div>
   <div class="card overflow-x-auto">
@@ -36,6 +36,7 @@ let PROFILE;
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "goals");
+  document.getElementById("page-title").textContent = `${getSelectedYear()}년 사업계획 목표`;
   document.getElementById("new-btn").classList.toggle("hidden", isHoldco(PROFILE));
   await loadGoals();
 })();
@@ -43,7 +44,7 @@ let PROFILE;
 document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
 
 async function loadGoals() {
-  let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", 2026).order("seq_no");
+  let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear()).order("seq_no");
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   else q = q.eq("company_id", PROFILE.company_id || "___none___"); // holdco staff without company just browse via dashboard instead
   const { data: goals, error } = await q;

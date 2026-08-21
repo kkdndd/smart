@@ -31,7 +31,7 @@
   <div class="flex items-center justify-between mb-6">
     <div>
       <h1 class="text-[22px] font-bold tracking-tight" style="color:var(--text-primary)">사업계획 대시보드</h1>
-      <p class="text-[13px]" style="color:var(--text-secondary)">2026년 · 전체 계열사 SMART 목표 현황</p>
+      <p class="text-[13px]" id="year-subtitle" style="color:var(--text-secondary)"></p>
     </div>
     <div class="flex gap-2">
       <button id="export-excel" class="btn btn-secondary">Excel 내보내기</button>
@@ -80,7 +80,7 @@
 <script src="js/nav.js"></script>
 <script>
 let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PROGRESS_BY_KEY = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
-const YEAR = 2026;
+const YEAR = getSelectedYear();
 let statusChartInstance = null, rateChartInstance = null;
 
 // 기존 배지(STATUS_BADGE_CLASS)와 완전히 동일한 색으로 맞춰, 페이지 안에서 같은 상태가 다른 색으로 보이지 않도록 함
@@ -135,6 +135,7 @@ const centerTextPlugin = {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "dashboard");
+  document.getElementById("year-subtitle").textContent = `${YEAR}년 · 전체 계열사 SMART 목표 현황`;
   await loadData();
   render();
   document.getElementById("search-input").addEventListener("input", (e) => {
