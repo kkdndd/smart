@@ -17,7 +17,9 @@ function renderNav(profile, active) {
     { href: "progress.html", label: "진행실적 입력", key: "progress" },
   ];
   if (isHoldco(profile)) {
-    links.push({ href: "review.html", label: "검토/승인", key: "review" });
+    if (isHoldcoEditor(profile)) {
+      links.push({ href: "review.html", label: "검토/승인", key: "review" });
+    }
     links.push({ href: "change-requests.html", label: "변경요청 관리", key: "cr" });
   } else {
     links.push({ href: "change-requests.html", label: "목표 변경요청", key: "cr" });
