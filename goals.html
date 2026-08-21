@@ -12,9 +12,15 @@
 <body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-6xl mx-auto px-4 py-6">
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
     <h1 class="text-lg font-bold text-slate-800" id="page-title"></h1>
-    <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
+    <div class="flex items-center gap-3">
+      <div id="company-filter" class="hidden items-center gap-2">
+        <label for="company-select" class="text-xs text-slate-500 whitespace-nowrap">회사</label>
+        <select id="company-select" class="border border-slate-300 rounded px-2 py-1.5 text-sm"></select>
+      </div>
+      <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
+    </div>
   </div>
   <div class="card overflow-x-auto">
     <table class="w-full">
@@ -31,13 +37,27 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE;
+let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null;
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "goals");
   document.getElementById("page-title").textContent = `${getSelectedYear()}년 사업계획 목표`;
   document.getElementById("new-btn").classList.toggle("hidden", isHoldco(PROFILE));
+
+  if (isHoldco(PROFILE)) {
+    // 지주사 담당자/경영진은 특정 회사에 소속되지 않으므로, 계열사를 드롭다운으로 골라서 조회한다
+    const { data: companies } = await sb.from("companies").select("*").order("is_holding", { ascending: false }).order("name");
+    COMPANIES = companies || [];
+    SELECTED_COMPANY_ID = COMPANIES[0] ? COMPANIES[0].id : null;
+    const sel = document.getElementById("company-select");
+    sel.innerHTML = COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    sel.addEventListener("change", () => { SELECTED_COMPANY_ID = sel.value; loadGoals(); });
+    const filterEl = document.getElementById("company-filter");
+    filterEl.classList.remove("hidden");
+    filterEl.classList.add("flex");
+  }
+
   await loadGoals();
 })();
 
@@ -46,7 +66,7 @@ document.getElementById("new-btn").addEventListener("click", () => window.locati
 async function loadGoals() {
   let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear()).order("seq_no");
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
-  else q = q.eq("company_id", PROFILE.company_id || "___none___"); // holdco staff without company just browse via dashboard instead
+  else q = q.eq("company_id", SELECTED_COMPANY_ID || "___none___");
   const { data: goals, error } = await q;
   if (error) { console.error(error); return; }
 
