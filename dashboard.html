@@ -87,6 +87,7 @@ let statusChartInstance = null, rateChartInstance = null;
 const STATUS_CHART_COLOR = {
   draft: "#6e6e73",
   submitted: "#4c6fa5",
+  company_approved: "#3f5bb5",
   revision_requested: "#b9821f",
   approved: "#2f9e5b",
   locked: "#3a4356"
@@ -225,7 +226,7 @@ function renderStatusChart() {
   if (ALL_GOALS.length === 0) { chartEmptyState("status-chart-wrap", "status-chart", "표시할 목표가 없습니다"); return; }
   document.getElementById("status-chart-wrap").innerHTML = `<canvas id="status-chart"></canvas>`;
 
-  const order = ["draft", "submitted", "revision_requested", "approved", "locked"];
+  const order = ["draft", "submitted", "company_approved", "revision_requested", "approved", "locked"];
   const counts = order.map(s => ALL_GOALS.filter(g => g.status === s).length);
   // 0건인 상태는 도넛 조각에서 제외 (빈 슬라이스는 시각적으로 의미가 없음)
   const labels = [], data = [], colors = [];
@@ -323,7 +324,7 @@ function renderCompanyOverview() {
     const r = avgRate(c.goals);
     const atRisk = c.goals.filter(g => { const rr = goalRate(g); return rr !== null && rr < 60; }).length;
     const approved = statusCount(c.goals, "approved") + statusCount(c.goals, "locked");
-    const submitted = statusCount(c.goals, "submitted");
+    const submitted = statusCount(c.goals, "submitted") + statusCount(c.goals, "company_approved"); // 계열사·지주사 검토 대기 합계
     const revision = statusCount(c.goals, "revision_requested");
     const draft = statusCount(c.goals, "draft");
     return `<div class="card p-4 cursor-pointer risk-card" onclick="focusCompany('${companyId}')">
@@ -352,7 +353,7 @@ function focusCompany(companyId) {
 function renderSummary() {
   const total = ALL_GOALS.length;
   const approved = ALL_GOALS.filter(g => g.status === "approved" || g.status === "locked").length;
-  const submitted = ALL_GOALS.filter(g => g.status === "submitted").length;
+  const submitted = ALL_GOALS.filter(g => g.status === "submitted" || g.status === "company_approved").length;
   const rate = avgRate(ALL_GOALS);
   const cell = (label, value, colorClass) => `
     <div class="card p-4">

@@ -49,7 +49,7 @@ function companyOrderIndex(name) {
 })();
 
 async function loadGoalOptions() {
-  let q = sb.from("goals").select("id, strategy_name, seq_no, status, indicator_name, companies:company_id(name)").eq("year", YEAR).order("seq_no");
+  let q = sb.from("goals").select("id, strategy_name, seq_no, status, indicator_name, companies:company_id(name), business_units:business_unit_id(name)").eq("year", YEAR).order("seq_no");
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   const { data } = await q;
   ALL_GOALS = data || [];
@@ -64,11 +64,12 @@ async function loadGoalOptions() {
 
 function renderGoalList() {
   const filter = document.getElementById("goal-filter").value.trim().toLowerCase();
-  const filtered = ALL_GOALS.filter(g => !filter || (g.strategy_name + " " + (g.indicator_name||"") + " " + g.companies.name).toLowerCase().includes(filter));
+  const filtered = ALL_GOALS.filter(g => !filter ||
+    (g.strategy_name + " " + (g.indicator_name||"") + " " + g.companies.name + " " + (g.business_units?.name||"")).toLowerCase().includes(filter));
   document.getElementById("goal-list").innerHTML = filtered.map(g => `
     <div data-id="${g.id}" class="goal-list-item flex items-center justify-between px-3 py-2 cursor-pointer text-sm ${g.id===SELECTED_GOAL_ID?'bg-[var(--accent-soft)]':'hover:bg-[var(--surface-hover)]'}">
       <div class="min-w-0">
-        <span class="font-medium text-slate-800">${isHoldco(PROFILE) ? escapeHtml(g.companies.name) + ' · ' : ''}${escapeHtml(g.strategy_name)}</span>
+        <span class="font-medium text-slate-800">${isHoldco(PROFILE) ? escapeHtml(g.companies.name) + ' · ' : ''}${g.business_units ? `<span class="text-slate-500">${escapeHtml(g.business_units.name)} · </span>` : ''}${escapeHtml(g.strategy_name)}</span>
         <span class="text-xs text-slate-400 ml-1">${escapeHtml(g.indicator_name||'')}</span>
       </div>
       <span class="badge ${STATUS_BADGE_CLASS[g.status]} whitespace-nowrap">${STATUS_LABEL[g.status]}</span>

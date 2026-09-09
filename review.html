@@ -12,26 +12,37 @@
 <body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-4">
-  <h1 class="text-lg font-bold text-slate-800">검토/승인 대기 목표</h1>
+  <div>
+    <h1 class="text-lg font-bold text-slate-800" id="page-title">검토/승인 대기 목표</h1>
+    <p class="text-xs text-slate-500 mt-1" id="page-desc"></p>
+  </div>
   <div id="list-root" class="space-y-3"></div>
 </div>
 
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE;
+let PROFILE, QUEUE_STATUS;
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
-  if (!isHoldcoEditor(PROFILE)) { document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return; }
+  if (!isCompanyStaff(PROFILE) && !isHoldcoEditor(PROFILE)) {
+    document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return;
+  }
   renderNav(PROFILE, "review");
+  // 계열사 담당자는 사업부가 올린 목표를, 지주사 담당자는 계열사가 승인한 목표를 검토한다
+  QUEUE_STATUS = isCompanyStaff(PROFILE) ? "submitted" : "company_approved";
+  document.getElementById("page-title").textContent = isCompanyStaff(PROFILE) ? "사업부 제출 목표 검토" : "지주사 최종 검토/승인";
+  document.getElementById("page-desc").textContent = isCompanyStaff(PROFILE)
+    ? "승인하면 지주사 검토 단계로 넘어가고, 수정요청하면 사업부 담당자에게 되돌아갑니다."
+    : "계열사 담당자가 승인해 올린 목표입니다. 승인하면 최종 확정됩니다.";
   await load();
 })();
 
 async function load() {
   const { data: goals, error } = await sb.from("goals")
     .select("*, companies:company_id(name), business_units:business_unit_id(name)")
-    .in("status", ["submitted"])
+    .eq("status", QUEUE_STATUS)
     .order("created_at");
   if (error) { console.error(error); return; }
 
@@ -55,16 +66,31 @@ async function load() {
       </dl>
       <textarea id="comment-${g.id}" rows="2" placeholder="검토 의견을 남겨주세요" class="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-2"></textarea>
       <div class="flex gap-2">
-        <button onclick="doReview('${g.id}','approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인</button>
-        <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">수정요청</button>
-        <button onclick="doReview('${g.id}','reject')" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
+        ${isCompanyStaff(PROFILE) ? `
+          <button onclick="doReview('${g.id}','company_approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인 후 지주사 제출</button>
+          <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">사업부에 수정요청</button>
+        ` : `
+          <button onclick="doReview('${g.id}','approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">최종 승인</button>
+          <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">수정요청</button>
+          <button onclick="doReview('${g.id}','reject')" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
+        `}
       </div>
     </div>`).join("") || `<p class="text-sm text-slate-400">검토 대기중인 목표가 없습니다.</p>`;
 }
 
 async function doReview(goalId, action) {
   const comment = document.getElementById("comment-"+goalId).value;
-  const statusMap = { approve: "approved", request_revision: "revision_requested", reject: "draft" };
+  // company_approve: 계열사 승인 → 지주사 검토 대기 / request_revision: 이전 작성 단계로 되돌림 / reject: 임시저장으로 반려
+  const statusMap = {
+    company_approve: "company_approved",
+    approve: "approved",
+    request_revision: "revision_requested",
+    reject: "draft"
+  };
+  if (action === "request_revision" && !comment.trim()) {
+    alert("수정요청 사유를 입력해주세요.");
+    return;
+  }
   const { error: e1 } = await sb.from("goals").update({ status: statusMap[action] }).eq("id", goalId);
   if (e1) { alert("실패: " + e1.message); return; }
   const { error: e2 } = await sb.from("goal_reviews").insert({ goal_id: goalId, action, comment, reviewer_id: PROFILE.id });

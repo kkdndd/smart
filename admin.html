@@ -11,42 +11,103 @@
 </head>
 <body class="min-h-screen">
 <div id="nav-root"></div>
-<div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
+<div class="max-w-6xl mx-auto px-4 py-6 space-y-4">
   <h1 class="text-lg font-bold text-slate-800">계정 관리</h1>
   <p class="text-xs text-slate-500">
     새 계정은 Supabase 대시보드(Authentication → Users → Invite user)에서 @daekyo.co.kr 이메일로 초대해야 합니다.
-    초대된 계정은 아래 목록에 자동으로 나타나며, 여기서 소속 계열사와 역할을 지정하세요.
+    초대된 계정은 아래 목록에 자동으로 나타나며, 여기서 소속 계열사·역할·담당 사업부를 지정하세요.
+    <b>사업부 담당자</b>는 배정된 사업부의 목표만 조회·입력할 수 있습니다.
   </p>
+
+  <div class="card p-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <input id="search" placeholder="이름 또는 이메일 검색" class="border border-slate-300 rounded px-3 py-1.5 text-sm w-56" />
+      <select id="filter-company" class="border border-slate-300 rounded px-2 py-1.5 text-sm"></select>
+      <select id="filter-role" class="border border-slate-300 rounded px-2 py-1.5 text-sm">
+        <option value="">전체 역할</option>
+        <option value="bu_staff">사업부 담당자</option>
+        <option value="company_staff">계열사 담당자</option>
+        <option value="holdco_staff">지주사 담당자/관리자</option>
+        <option value="holdco_exec">지주사 경영진(조회전용)</option>
+      </select>
+      <span id="count" class="text-xs text-slate-400 ml-auto"></span>
+    </div>
+  </div>
+
   <div class="card overflow-x-auto">
     <table class="w-full text-sm">
       <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
-        <th class="py-2 px-3">이메일</th><th class="py-2 px-3">이름</th><th class="py-2 px-3">소속 계열사</th><th class="py-2 px-3">역할</th><th class="py-2 px-3"></th>
+        <th class="py-2 px-3">이메일</th><th class="py-2 px-3">이름</th>
+        <th class="py-2 px-3 whitespace-nowrap">소속 계열사</th><th class="py-2 px-3">역할</th>
+        <th class="py-2 px-3">담당 사업부</th><th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
   </div>
 </div>
+
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, COMPANIES = [];
+let PROFILE, COMPANIES = [], BUS_BY_COMPANY = {}, PROFILES = [], ASSIGNED = {};
+
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   if (!isHoldcoEditor(PROFILE)) { document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return; }
   renderNav(PROFILE, "admin");
+
   const { data: companies } = await sb.from("companies").select("*").order("is_holding", { ascending: false }).order("name");
   COMPANIES = companies || [];
+  document.getElementById("filter-company").innerHTML =
+    `<option value="">전체 계열사</option>` + COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+
+  const { data: units } = await sb.from("business_units").select("id,name,company_id").order("name");
+  (units || []).forEach(u => {
+    if (!BUS_BY_COMPANY[u.company_id]) BUS_BY_COMPANY[u.company_id] = [];
+    BUS_BY_COMPANY[u.company_id].push(u);
+  });
+
+  ["search", "filter-company", "filter-role"].forEach(id => {
+    document.getElementById(id).addEventListener("input", render);
+    document.getElementById(id).addEventListener("change", render);
+  });
+
   await load();
 })();
 
 async function load() {
   const { data: profiles, error } = await sb.from("profiles").select("*").order("created_at");
   if (error) { console.error(error); return; }
-  document.getElementById("rows").innerHTML = profiles.map(p => `
-    <tr class="border-b border-slate-100" data-id="${p.id}">
-      <td class="py-2 px-3">${escapeHtml(p.email)}</td>
-      <td class="py-2 px-3"><input class="name-input border border-slate-300 rounded px-2 py-1 text-sm w-32" value="${escapeHtml(p.name||'')}" /></td>
+  PROFILES = profiles || [];
+
+  const { data: assigns } = await sb.from("profile_business_units").select("profile_id, business_unit_id");
+  ASSIGNED = {};
+  (assigns || []).forEach(a => {
+    if (!ASSIGNED[a.profile_id]) ASSIGNED[a.profile_id] = [];
+    ASSIGNED[a.profile_id].push(a.business_unit_id);
+  });
+
+  render();
+}
+
+function render() {
+  const q = document.getElementById("search").value.trim().toLowerCase();
+  const fc = document.getElementById("filter-company").value;
+  const fr = document.getElementById("filter-role").value;
+
+  const list = PROFILES.filter(p => {
+    if (q && !((p.name || "") + " " + p.email).toLowerCase().includes(q)) return false;
+    if (fc && p.company_id !== fc) return false;
+    if (fr && p.role !== fr) return false;
+    return true;
+  });
+
+  document.getElementById("count").textContent = `${list.length}명 / 전체 ${PROFILES.length}명`;
+  document.getElementById("rows").innerHTML = list.map(p => `
+    <tr class="border-b border-slate-100 align-top" data-id="${p.id}">
+      <td class="py-2 px-3 whitespace-nowrap">${escapeHtml(p.email)}</td>
+      <td class="py-2 px-3"><input class="name-input border border-slate-300 rounded px-2 py-1 text-sm w-24" value="${escapeHtml(p.name||'')}" /></td>
       <td class="py-2 px-3">
         <select class="company-select border border-slate-300 rounded px-2 py-1 text-sm">
           <option value="">-</option>
@@ -55,25 +116,79 @@ async function load() {
       </td>
       <td class="py-2 px-3">
         <select class="role-select border border-slate-300 rounded px-2 py-1 text-sm">
+          <option value="bu_staff" ${p.role==='bu_staff'?'selected':''}>사업부 담당자</option>
           <option value="company_staff" ${p.role==='company_staff'?'selected':''}>계열사 담당자</option>
           <option value="holdco_staff" ${p.role==='holdco_staff'?'selected':''}>지주사 담당자/관리자</option>
           <option value="holdco_exec" ${p.role==='holdco_exec'?'selected':''}>지주사 경영진(조회전용)</option>
         </select>
       </td>
-      <td class="py-2 px-3"><button class="save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1">저장</button></td>
-    </tr>`).join("");
+      <td class="py-2 px-3"><div class="bu-cell"></div></td>
+      <td class="py-2 px-3 whitespace-nowrap"><button class="save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1">저장</button></td>
+    </tr>`).join("") || `<tr><td colspan="6" class="py-8 text-center text-slate-400 text-sm">조건에 맞는 계정이 없습니다.</td></tr>`;
 
-  document.querySelectorAll(".save-btn").forEach(btn => {
-    btn.addEventListener("click", async (e) => {
-      const tr = e.target.closest("tr");
-      const id = tr.dataset.id;
-      const name = tr.querySelector(".name-input").value;
-      const company_id = tr.querySelector(".company-select").value || null;
-      const role = tr.querySelector(".role-select").value;
-      const { error } = await sb.from("profiles").update({ name, company_id, role }).eq("id", id);
-      if (error) alert("저장 실패: " + error.message); else alert("저장되었습니다.");
-    });
+  document.querySelectorAll("#rows tr[data-id]").forEach(tr => {
+    renderBuCell(tr);
+    tr.querySelector(".role-select").addEventListener("change", () => renderBuCell(tr));
+    tr.querySelector(".company-select").addEventListener("change", () => renderBuCell(tr));
+    tr.querySelector(".save-btn").addEventListener("click", () => saveRow(tr));
   });
+}
+
+// 담당 사업부 배정 칸: 역할이 '사업부 담당자'일 때만, 선택된 계열사의 사업부를 체크박스로 보여준다
+function renderBuCell(tr) {
+  const cell = tr.querySelector(".bu-cell");
+  const role = tr.querySelector(".role-select").value;
+  const companyId = tr.querySelector(".company-select").value;
+  const assigned = ASSIGNED[tr.dataset.id] || [];
+
+  if (role !== "bu_staff") {
+    cell.innerHTML = `<span class="text-xs text-slate-300">해당 없음 (회사 전체 범위)</span>`;
+    return;
+  }
+  if (!companyId) {
+    cell.innerHTML = `<span class="text-xs text-amber-600">소속 계열사를 먼저 지정하세요</span>`;
+    return;
+  }
+  const units = BUS_BY_COMPANY[companyId] || [];
+  if (!units.length) {
+    cell.innerHTML = `<span class="text-xs text-amber-600">등록된 사업부가 없습니다 (사업부 관리에서 먼저 등록)</span>`;
+    return;
+  }
+  cell.innerHTML = `<div class="flex flex-wrap gap-x-3 gap-y-1 max-w-xs">` + units.map(u => `
+    <label class="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
+      <input type="checkbox" class="bu-check" value="${u.id}" ${assigned.includes(u.id)?'checked':''} /> ${escapeHtml(u.name)}
+    </label>`).join("") + `</div>`;
+}
+
+async function saveRow(tr) {
+  const id = tr.dataset.id;
+  const name = tr.querySelector(".name-input").value;
+  const company_id = tr.querySelector(".company-select").value || null;
+  const role = tr.querySelector(".role-select").value;
+  const checked = [...tr.querySelectorAll(".bu-check")].filter(c => c.checked).map(c => c.value);
+
+  if (role === "bu_staff" && !company_id) { alert("사업부 담당자는 소속 계열사를 지정해야 합니다."); return; }
+  if (role === "bu_staff" && checked.length === 0) { alert("담당 사업부를 하나 이상 선택해주세요."); return; }
+
+  const { error } = await sb.from("profiles").update({ name, company_id, role }).eq("id", id);
+  if (error) { alert("저장 실패: " + error.message); return; }
+
+  // 사업부 배정 동기화: 체크 해제된 것은 삭제, 새로 체크된 것만 추가
+  const before = ASSIGNED[id] || [];
+  const target = role === "bu_staff" ? checked : []; // 사업부 담당자가 아니면 배정을 모두 해제
+  const toRemove = before.filter(b => !target.includes(b));
+  const toAdd = target.filter(b => !before.includes(b));
+
+  if (toRemove.length) {
+    const { error: e1 } = await sb.from("profile_business_units").delete().eq("profile_id", id).in("business_unit_id", toRemove);
+    if (e1) { alert("사업부 배정 해제 실패: " + e1.message); return; }
+  }
+  if (toAdd.length) {
+    const { error: e2 } = await sb.from("profile_business_units").insert(toAdd.map(b => ({ profile_id: id, business_unit_id: b })));
+    if (e2) { alert("사업부 배정 실패: " + e2.message); return; }
+  }
+  ASSIGNED[id] = target;
+  alert("저장되었습니다.");
 }
 </script>
 </body>

@@ -2,9 +2,11 @@
 
 const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
+// 결재 흐름: 사업부 담당자 작성 → 계열사 담당자 검토 → 지주사 담당자 최종 확정
 const STATUS_LABEL = {
   draft: "임시저장",
-  submitted: "제출됨(검토대기)",
+  submitted: "계열사 검토중",
+  company_approved: "지주사 검토중",
   revision_requested: "수정요청",
   approved: "승인완료",
   locked: "잠김"
@@ -13,9 +15,26 @@ const STATUS_LABEL = {
 const STATUS_BADGE_CLASS = {
   draft: "bg-[#f0f0f2] text-[#6e6e73]",
   submitted: "bg-[#eaf0f8] text-[#4c6fa5]",
+  company_approved: "bg-[#e8eefb] text-[#3f5bb5]",
   revision_requested: "bg-[#faf1de] text-[#b9821f]",
   approved: "bg-[#e7f5ec] text-[#2f9e5b]",
   locked: "bg-[#eceef1] text-[#3a4356]"
+};
+
+const REVIEW_ACTION_LABEL = {
+  submit: "제출",
+  company_approve: "계열사 승인",
+  approve: "지주사 승인",
+  reject: "반려",
+  request_revision: "수정요청",
+  withdraw: "제출취소"
+};
+
+const ROLE_LABEL = {
+  bu_staff: "사업부 담당자",
+  company_staff: "계열사 담당자",
+  holdco_staff: "지주사 담당자/관리자",
+  holdco_exec: "지주사 경영진(조회)"
 };
 
 const METRIC_TYPE_LABEL = {
@@ -43,6 +62,12 @@ async function requireAuth() {
     window.location.href = "index.html";
     return null;
   }
+  // 사업부 담당자는 배정된 사업부 범위 안에서만 조회/입력할 수 있으므로 함께 실어둔다
+  const { data: buRows } = await sb.from("profile_business_units")
+    .select("business_unit_id, business_units:business_unit_id(id,name)")
+    .eq("profile_id", profile.id);
+  profile.business_units = (buRows || []).map(r => r.business_units).filter(Boolean);
+  profile.business_unit_ids = (buRows || []).map(r => r.business_unit_id);
   return profile;
 }
 
@@ -54,6 +79,34 @@ function isHoldcoEditor(profile) {
 }
 function isCompanyStaff(profile) {
   return profile.role === "company_staff";
+}
+function isBuStaff(profile) {
+  return profile.role === "bu_staff";
+}
+// 목표를 직접 작성/수정할 수 있는 역할 (사업부 담당자 + 계열사 담당자)
+function canWriteGoals(profile) {
+  return isBuStaff(profile) || isCompanyStaff(profile);
+}
+// 사업부 마스터(등록/수정/병합)를 관리할 수 있는 역할
+function canManageBusinessUnits(profile) {
+  return isCompanyStaff(profile) || isHoldcoEditor(profile);
+}
+// 목표 하나에 대해 이 사용자가 손댈 수 있는지 (RLS와 동일한 규칙을 화면에서 미리 판단)
+function canEditGoal(profile, goal) {
+  if (isHoldcoEditor(profile)) return true;
+  if (isCompanyStaff(profile)) {
+    return goal.company_id === profile.company_id
+      && ["draft", "submitted", "revision_requested", "company_approved"].includes(goal.status);
+  }
+  if (isBuStaff(profile)) {
+    return goal.company_id === profile.company_id
+      && goal.business_unit_id && profile.business_unit_ids.includes(goal.business_unit_id)
+      && ["draft", "submitted", "revision_requested"].includes(goal.status);
+  }
+  return false;
+}
+function roleLabel(role) {
+  return ROLE_LABEL[role] || role;
 }
 
 async function signOutAndRedirect() {

@@ -111,27 +111,59 @@ let PROFILE, GOAL_ID = new URLSearchParams(location.search).get("id");
 // 새 목표는 사이드바에서 선택한 사업연도로 생성. 기존 목표를 수정할 때는
 // (사이드바에서 다른 연도를 보고 있더라도) 그 목표 본래의 연도를 그대로 유지한다.
 let GOAL_YEAR = getSelectedYear();
+let GOAL_COMPANY_ID = null; // 수정 시에는 그 목표가 속한 회사를 그대로 유지한다
 
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
+  if (!canWriteGoals(PROFILE) && !isHoldcoEditor(PROFILE)) {
+    document.body.innerHTML = "<p class='p-6 text-red-600'>목표를 작성할 권한이 없습니다.</p>";
+    return;
+  }
   renderNav(PROFILE, "goals");
-  await loadBusinessUnits();
+  GOAL_COMPANY_ID = PROFILE.company_id;
   if (GOAL_ID) await loadGoal(GOAL_ID);
-  else addMetricRow();
+  else { await loadBusinessUnits(); addMetricRow(); }
   document.getElementById("page-title").textContent = (GOAL_ID ? "SMART 목표 수정" : "SMART 목표 작성") + ` (${GOAL_YEAR}년)`;
+  renderSubmitButtons();
 })();
 
-async function loadBusinessUnits() {
-  const { data } = await sb.from("business_units").select("*").eq("company_id", PROFILE.company_id).order("name");
+// 역할에 따라 제출 버튼 문구와 다음 상태가 달라진다
+//  · 사업부 담당자 → 계열사 담당자에게 검토 요청 (submitted)
+//  · 계열사 담당자 → 본인이 확인한 것이므로 곧바로 지주사 검토로 (company_approved)
+function submitTargetStatus() {
+  return isCompanyStaff(PROFILE) ? "company_approved" : "submitted";
+}
+
+function renderSubmitButtons() {
+  const btn = document.querySelector('#goal-form button[data-mode="submit"]');
+  if (!btn) return;
+  if (isHoldcoEditor(PROFILE)) { btn.classList.add("hidden"); return; }
+  btn.textContent = isCompanyStaff(PROFILE) ? "지주사 검토 제출" : "계열사 검토 제출";
+}
+
+async function loadBusinessUnits(selectedId) {
   const sel = document.getElementById("business_unit_id");
-  sel.innerHTML = `<option value="">(선택 안함)</option>` + (data||[]).map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+  let units = [];
+  if (isBuStaff(PROFILE)) {
+    // 사업부 담당자는 배정된 사업부에만 목표를 등록할 수 있다
+    units = [...(PROFILE.business_units || [])].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    sel.innerHTML = units.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("")
+      || `<option value="">배정된 사업부가 없습니다</option>`;
+  } else {
+    const { data } = await sb.from("business_units").select("id,name").eq("company_id", GOAL_COMPANY_ID || "___none___").order("name");
+    units = data || [];
+    sel.innerHTML = `<option value="">(전사 공통 · 사업부 미지정)</option>` + units.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+  }
+  if (selectedId) sel.value = selectedId;
 }
 
 async function loadGoal(id) {
   const { data: goal, error } = await sb.from("goals").select("*").eq("id", id).single();
   if (error || !goal) { alert("목표를 불러올 수 없습니다."); return; }
   GOAL_YEAR = goal.year;
+  GOAL_COMPANY_ID = goal.company_id;
+  await loadBusinessUnits(goal.business_unit_id);
   ["business_unit_id","strategy_name","specific_text","measurable_text","achievable_text","relevant_text","timebound_text","follow_up_action","remarks"]
     .forEach(f => { const el = document.getElementById(f); if (el) el.value = goal[f] || ""; });
 
@@ -230,10 +262,17 @@ async function saveGoal(mode) {
   const strategy = document.getElementById("strategy_name").value.trim();
   if (!strategy) { errEl.textContent = "전략(목표)을 입력해주세요."; errEl.classList.remove("hidden"); return; }
 
+  const buId = document.getElementById("business_unit_id").value || null;
+  if (isBuStaff(PROFILE) && !buId) {
+    errEl.textContent = "배정된 사업부가 없습니다. 지주사 담당자에게 사업부 배정을 요청해주세요.";
+    errEl.classList.remove("hidden");
+    return;
+  }
+
   const payload = {
-    company_id: PROFILE.company_id,
+    company_id: GOAL_COMPANY_ID,
     year: GOAL_YEAR,
-    business_unit_id: document.getElementById("business_unit_id").value || null,
+    business_unit_id: buId,
     strategy_name: strategy,
     specific_text: document.getElementById("specific_text").value,
     measurable_text: document.getElementById("measurable_text").value,
@@ -242,12 +281,15 @@ async function saveGoal(mode) {
     timebound_text: document.getElementById("timebound_text").value,
     follow_up_action: document.getElementById("follow_up_action").value,
     remarks: document.getElementById("remarks").value,
-    status: mode === "submit" ? "submitted" : "draft",
+    status: mode === "submit" ? submitTargetStatus() : "draft",
     created_by: PROFILE.id
   };
+  if (GOAL_ID && mode !== "submit") delete payload.status; // 수정 저장 시에는 진행 중인 결재 상태를 건드리지 않는다
 
   let goalId = GOAL_ID;
   if (goalId) {
+    delete payload.created_by; // 수정 시 최초 작성자는 그대로 유지
+    payload.updated_at = new Date().toISOString();
     const { error } = await sb.from("goals").update(payload).eq("id", goalId);
     if (error) { errEl.textContent = "저장 실패: " + error.message; errEl.classList.remove("hidden"); return; }
   } else {
@@ -296,7 +338,10 @@ async function saveGoal(mode) {
   }
 
   if (mode === "submit") {
-    await sb.from("goal_reviews").insert({ goal_id: goalId, action: "submit", reviewer_id: null, comment: null });
+    await sb.from("goal_reviews").insert({
+      goal_id: goalId, action: "submit", reviewer_id: PROFILE.id,
+      comment: isCompanyStaff(PROFILE) ? "계열사 담당자 작성 후 지주사 제출" : null
+    });
   }
 
   window.location.href = "goal-detail.html?id=" + goalId;

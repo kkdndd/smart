@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>사업부 관리 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
+<script src="js/config.js"></script>
+</head>
+<body class="min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <h1 class="text-lg font-bold text-slate-800">사업부 관리</h1>
+    <div id="company-filter" class="hidden items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg pl-3 pr-2 py-1">
+      <label for="company-select" class="text-xs font-semibold text-amber-700 whitespace-nowrap">회사</label>
+      <select id="company-select" class="border border-amber-300 rounded px-2 py-1 text-sm font-semibold text-amber-800 bg-white"></select>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <p class="text-xs text-slate-500 mb-2">
+      같은 사업부가 띄어쓰기나 표기 차이로 중복 등록되지 않도록, 공백·대소문자를 무시한 이름이 같으면 등록이 차단됩니다.
+      이미 중복이 생긴 경우 아래 목록의 '병합'으로 하나로 합칠 수 있습니다.
+    </p>
+    <div class="flex gap-2">
+      <input id="new-bu-name" placeholder="새 사업부명 (예: 온채널)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
+      <button id="add-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342] whitespace-nowrap">+ 사업부 등록</button>
+    </div>
+    <p id="add-msg" class="text-xs mt-2 hidden"></p>
+  </div>
+
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
+        <th class="py-2 px-3">사업부명</th>
+        <th class="py-2 px-3 whitespace-nowrap">등록 목표</th>
+        <th class="py-2 px-3 whitespace-nowrap">담당자</th>
+        <th class="py-2 px-3"></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, COMPANY_ID = null, UNITS = [];
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  if (!canManageBusinessUnits(PROFILE)) {
+    document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return;
+  }
+  renderNav(PROFILE, "bu");
+
+  if (isHoldcoEditor(PROFILE)) {
+    const { data: companies } = await sb.from("companies").select("id,name,is_holding").order("is_holding", { ascending: false }).order("name");
+    const sel = document.getElementById("company-select");
+    sel.innerHTML = (companies || []).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    COMPANY_ID = companies && companies[0] ? companies[0].id : null;
+    sel.addEventListener("change", () => { COMPANY_ID = sel.value; load(); });
+    const f = document.getElementById("company-filter");
+    f.classList.remove("hidden"); f.classList.add("flex");
+  } else {
+    COMPANY_ID = PROFILE.company_id;
+  }
+
+  document.getElementById("add-btn").addEventListener("click", addUnit);
+  document.getElementById("new-bu-name").addEventListener("keydown", e => { if (e.key === "Enter") addUnit(); });
+  await load();
+})();
+
+// 공백 제거 + 소문자 변환 (DB의 유니크 인덱스와 동일한 정규화 규칙)
+function normalizeName(name) {
+  return name.replace(/\s+/g, "").toLowerCase();
+}
+
+function showAddMsg(text, isError) {
+  const el = document.getElementById("add-msg");
+  el.textContent = text;
+  el.className = "text-xs mt-2 " + (isError ? "text-red-600" : "text-green-600");
+  el.classList.remove("hidden");
+}
+
+async function load() {
+  const { data: units, error } = await sb.from("business_units").select("id,name,company_id").eq("company_id", COMPANY_ID || "___none___").order("name");
+  if (error) { console.error(error); return; }
+  UNITS = units || [];
+
+  const ids = UNITS.map(u => u.id);
+  let goalCount = {}, staffCount = {};
+  if (ids.length) {
+    const { data: goals } = await sb.from("goals").select("business_unit_id").in("business_unit_id", ids);
+    (goals || []).forEach(g => { goalCount[g.business_unit_id] = (goalCount[g.business_unit_id] || 0) + 1; });
+    const { data: assigns } = await sb.from("profile_business_units").select("business_unit_id").in("business_unit_id", ids);
+    (assigns || []).forEach(a => { staffCount[a.business_unit_id] = (staffCount[a.business_unit_id] || 0) + 1; });
+  }
+
+  document.getElementById("rows").innerHTML = UNITS.map(u => {
+    const gc = goalCount[u.id] || 0, sc = staffCount[u.id] || 0;
+    const others = UNITS.filter(x => x.id !== u.id);
+    return `<tr class="border-b border-slate-100" data-id="${u.id}">
+      <td class="py-2 px-3"><input class="bu-name border border-slate-300 rounded px-2 py-1 text-sm w-48" value="${escapeHtml(u.name)}" /></td>
+      <td class="py-2 px-3 text-slate-600">${gc}건</td>
+      <td class="py-2 px-3 text-slate-600">${sc}명</td>
+      <td class="py-2 px-3 text-right whitespace-nowrap">
+        <button onclick="renameUnit('${u.id}')" class="text-xs text-slate-700 underline mr-3">이름 저장</button>
+        ${others.length ? `
+          <select class="merge-target border border-slate-300 rounded px-1.5 py-1 text-xs mr-1">
+            <option value="">병합 대상 선택</option>
+            ${others.map(o => `<option value="${o.id}">${escapeHtml(o.name)}(으)로 합치기</option>`).join("")}
+          </select>
+          <button onclick="mergeUnit('${u.id}')" class="text-xs text-amber-700 underline mr-3">병합</button>` : ''}
+        ${(gc === 0 && sc === 0) ? `<button onclick="deleteUnit('${u.id}')" class="text-xs text-red-500 underline">삭제</button>`
+          : `<span class="text-xs text-slate-300">삭제불가</span>`}
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-400 text-sm">등록된 사업부가 없습니다.</td></tr>`;
+}
+
+async function addUnit() {
+  const input = document.getElementById("new-bu-name");
+  const name = input.value.trim();
+  if (!name) { showAddMsg("사업부명을 입력해주세요.", true); return; }
+
+  const norm = normalizeName(name);
+  const exact = UNITS.find(u => normalizeName(u.name) === norm);
+  if (exact) { showAddMsg(`이미 등록된 사업부입니다: ${exact.name}`, true); return; }
+
+  // 표기가 조금 다르지만 비슷한 이름이 있으면 등록 전에 한 번 더 확인받는다
+  const similar = UNITS.filter(u => {
+    const n = normalizeName(u.name);
+    return n.includes(norm) || norm.includes(n);
+  });
+  if (similar.length && !confirm(`비슷한 이름의 사업부가 이미 있습니다: ${similar.map(s => s.name).join(", ")}\n그래도 새로 등록할까요?`)) return;
+
+  const { error } = await sb.from("business_units").insert({ company_id: COMPANY_ID, name });
+  if (error) {
+    showAddMsg(error.code === "23505" ? "동일한 사업부가 이미 등록되어 있습니다." : "등록 실패: " + error.message, true);
+    return;
+  }
+  input.value = "";
+  showAddMsg(`'${name}' 사업부를 등록했습니다.`, false);
+  await load();
+}
+
+async function renameUnit(id) {
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const name = tr.querySelector(".bu-name").value.trim();
+  if (!name) { alert("사업부명을 입력해주세요."); return; }
+  const norm = normalizeName(name);
+  if (UNITS.some(u => u.id !== id && normalizeName(u.name) === norm)) {
+    alert("같은 이름의 사업부가 이미 있습니다. 병합 기능을 사용해주세요.");
+    return;
+  }
+  const { error } = await sb.from("business_units").update({ name }).eq("id", id);
+  if (error) { alert(error.code === "23505" ? "같은 이름의 사업부가 이미 있습니다." : "저장 실패: " + error.message); return; }
+  await load();
+}
+
+async function mergeUnit(sourceId) {
+  const tr = document.querySelector(`tr[data-id="${sourceId}"]`);
+  const targetId = tr.querySelector(".merge-target").value;
+  if (!targetId) { alert("병합할 대상 사업부를 선택해주세요."); return; }
+  const source = UNITS.find(u => u.id === sourceId), target = UNITS.find(u => u.id === targetId);
+  if (!confirm(`'${source.name}'의 목표와 담당자를 '${target.name}'(으)로 모두 옮기고, '${source.name}'은 삭제합니다.\n이 작업은 되돌릴 수 없습니다. 진행할까요?`)) return;
+
+  const { error } = await sb.rpc("merge_business_unit", { p_source: sourceId, p_target: targetId });
+  if (error) { alert("병합 실패: " + error.message); return; }
+  await load();
+}
+
+async function deleteUnit(id) {
+  const unit = UNITS.find(u => u.id === id);
+  if (!confirm(`'${unit.name}' 사업부를 삭제할까요?`)) return;
+  const { error } = await sb.from("business_units").delete().eq("id", id);
+  if (error) { alert("삭제 실패: " + error.message); return; }
+  await load();
+}
+</script>
+</body>
+</html>

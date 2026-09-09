@@ -19,6 +19,10 @@
         <label for="company-select" class="text-xs font-semibold text-amber-700 whitespace-nowrap">회사</label>
         <select id="company-select" class="border border-amber-300 rounded px-2 py-1 text-sm font-semibold text-amber-800 bg-white"></select>
       </div>
+      <div id="bu-filter" class="hidden items-center gap-2 bg-slate-50 border border-slate-300 rounded-lg pl-3 pr-2 py-1">
+        <label for="bu-select" class="text-xs font-semibold text-slate-500 whitespace-nowrap">사업부</label>
+        <select id="bu-select" class="border border-slate-300 rounded px-2 py-1 text-sm font-medium text-slate-700 bg-white"></select>
+      </div>
     </div>
     <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
   </div>
@@ -37,13 +41,13 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null;
+let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "";
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "goals");
   document.getElementById("page-title").textContent = `${getSelectedYear()}년 사업계획 목표`;
-  document.getElementById("new-btn").classList.toggle("hidden", isHoldco(PROFILE));
+  document.getElementById("new-btn").classList.toggle("hidden", !canWriteGoals(PROFILE));
 
   if (isHoldco(PROFILE)) {
     // 지주사 담당자/경영진은 특정 회사에 소속되지 않으므로, 계열사를 드롭다운으로 골라서 조회한다
@@ -52,21 +56,46 @@ let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null;
     SELECTED_COMPANY_ID = COMPANIES[0] ? COMPANIES[0].id : null;
     const sel = document.getElementById("company-select");
     sel.innerHTML = COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    sel.addEventListener("change", () => { SELECTED_COMPANY_ID = sel.value; loadGoals(); });
-    const filterEl = document.getElementById("company-filter");
-    filterEl.classList.remove("hidden");
-    filterEl.classList.add("flex");
+    sel.addEventListener("change", async () => { SELECTED_COMPANY_ID = sel.value; SELECTED_BU_ID = ""; await loadBuFilter(); loadGoals(); });
+    showFilter("company-filter");
+  } else {
+    SELECTED_COMPANY_ID = PROFILE.company_id;
   }
 
+  await loadBuFilter();
   await loadGoals();
 })();
+
+function showFilter(id) {
+  const el = document.getElementById(id);
+  el.classList.remove("hidden");
+  el.classList.add("flex");
+}
+
+// 사업부 필터: 계열사·지주사 담당자는 회사 전체 사업부 중에서, 겸직 중인 사업부 담당자는 본인 담당 사업부 중에서 고른다
+async function loadBuFilter() {
+  const sel = document.getElementById("bu-select");
+  let options = [];
+  if (isBuStaff(PROFILE)) {
+    if ((PROFILE.business_units || []).length < 2) return; // 담당 사업부가 하나뿐이면 필터가 불필요
+    options = [...PROFILE.business_units].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  } else {
+    if (!SELECTED_COMPANY_ID) return;
+    const { data } = await sb.from("business_units").select("id,name").eq("company_id", SELECTED_COMPANY_ID).order("name");
+    options = data || [];
+  }
+  sel.innerHTML = `<option value="">전체 사업부</option>` + options.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+  sel.value = SELECTED_BU_ID;
+  sel.onchange = () => { SELECTED_BU_ID = sel.value; loadGoals(); };
+  showFilter("bu-filter");
+}
 
 document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
 
 async function loadGoals() {
   let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear()).order("seq_no");
-  if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
-  else q = q.eq("company_id", SELECTED_COMPANY_ID || "___none___");
+  q = q.eq("company_id", SELECTED_COMPANY_ID || "___none___");
+  if (SELECTED_BU_ID) q = q.eq("business_unit_id", SELECTED_BU_ID);
   const { data: goals, error } = await q;
   if (error) { console.error(error); return; }
 
@@ -79,7 +108,7 @@ async function loadGoals() {
 
   document.getElementById("rows").innerHTML = (goals||[]).map(g => {
     const lastReview = reviewsByGoal[g.id];
-    const editable = g.status === "draft" || g.status === "revision_requested";
+    const editable = canEditGoal(PROFILE, g);
     return `<tr class="border-b border-slate-100 cursor-pointer hover:bg-[var(--surface-hover)]" onclick="window.location.href='goal-detail.html?id=${g.id}'">
       <td class="py-2 px-3 text-sm">${g.seq_no ?? ''}</td>
       <td class="py-2 px-3 text-sm whitespace-nowrap">${escapeHtml(g.business_units ? g.business_units.name : '')}</td>
@@ -90,10 +119,10 @@ async function loadGoals() {
       <td class="py-2 px-3 text-xs text-slate-500 max-w-xs">${lastReview ? escapeHtml(lastReview.comment||'') : ''}</td>
       <td class="py-2 px-3 text-sm text-right whitespace-nowrap" onclick="event.stopPropagation()">
         <a href="goal-detail.html?id=${g.id}" class="text-slate-500 hover:underline mr-3">상세</a>
-        ${(!isHoldco(PROFILE) && editable) ? `<a href="goal-form.html?id=${g.id}" class="text-slate-800 font-medium hover:underline">수정</a>` : ''}
+        ${editable ? `<a href="goal-form.html?id=${g.id}" class="text-slate-800 font-medium hover:underline">수정</a>` : ''}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="8" class="py-8 text-center text-slate-400 text-sm">등록된 목표가 없습니다. '새 목표 작성'으로 시작하세요.</td></tr>`;
+  }).join("") || `<tr><td colspan="8" class="py-8 text-center text-slate-400 text-sm">등록된 목표가 없습니다.${canWriteGoals(PROFILE) ? " '새 목표 작성'으로 시작하세요." : ""}</td></tr>`;
 }
 </script>
 </body>
