@@ -16,7 +16,9 @@
   <p class="text-xs text-slate-500">
     새 계정은 Supabase 대시보드(Authentication → Users → Invite user)에서 @daekyo.co.kr 이메일로 초대해야 합니다.
     초대된 계정은 아래 목록에 자동으로 나타나며, 여기서 소속 계열사·역할·담당 사업부를 지정하세요.
-    <b>사업부 담당자</b>는 배정된 사업부의 목표만 조회·입력할 수 있습니다.
+    <b>사업부 담당자</b>는 배정된 사업부의 목표만 조회·입력할 수 있습니다.<br />
+    새로 만든 계정은 첫 로그인 시 <b>초기 비밀번호를 반드시 변경</b>해야 다른 화면을 쓸 수 있습니다.
+    비밀번호를 재발급해준 경우 아래 [변경 요구] 버튼으로 같은 절차를 다시 걸 수 있습니다.
   </p>
 
   <div class="card p-3">
@@ -39,7 +41,7 @@
       <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
         <th class="py-2 px-3">이메일</th><th class="py-2 px-3">이름</th>
         <th class="py-2 px-3 whitespace-nowrap">소속 계열사</th><th class="py-2 px-3">역할</th>
-        <th class="py-2 px-3">담당 사업부</th><th class="py-2 px-3"></th>
+        <th class="py-2 px-3">담당 사업부</th><th class="py-2 px-3 whitespace-nowrap">비밀번호</th><th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -124,8 +126,16 @@ function render() {
         </select>
       </td>
       <td class="py-2 px-3"><div class="bu-cell"></div></td>
+      <td class="py-2 px-3 whitespace-nowrap">
+        ${p.must_change_password
+          ? `<span class="badge bg-[#faf1de] text-[#b9821f]">변경 요구중</span>
+             <button onclick="setPasswordRequirement('${p.id}', false)" class="block text-[11px] text-slate-500 underline mt-1">요구 해제</button>`
+          : `<span class="badge bg-[#e7f5ec] text-[#2f9e5b]">사용중</span>
+             <button onclick="setPasswordRequirement('${p.id}', true)" class="block text-[11px] text-slate-500 underline mt-1">변경 요구</button>
+             ${p.password_changed_at ? `<span class="block text-[10px] text-slate-300 mt-0.5">${new Date(p.password_changed_at).toLocaleDateString('ko-KR')} 변경</span>` : ''}`}
+      </td>
       <td class="py-2 px-3 whitespace-nowrap"><button class="save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1">저장</button></td>
-    </tr>`).join("") || `<tr><td colspan="6" class="py-8 text-center text-slate-400 text-sm">조건에 맞는 계정이 없습니다.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">조건에 맞는 계정이 없습니다.</td></tr>`;
 
   document.querySelectorAll("#rows tr[data-id]").forEach(tr => {
     renderBuCell(tr);
@@ -160,6 +170,16 @@ function renderBuCell(tr) {
     <label class="flex items-center gap-1 text-xs ${u.is_active===false?'text-slate-400':'text-slate-600'} whitespace-nowrap">
       <input type="checkbox" class="bu-check" value="${u.id}" ${assigned.includes(u.id)?'checked':''} /> ${escapeHtml(u.name)}${u.is_active===false?' (숨김)':''}
     </label>`).join("") + `</div>`;
+}
+
+// 초기 비밀번호를 새로 발급했을 때, 해당 계정이 다음 로그인에서 반드시 비밀번호를 바꾸도록 요구한다
+async function setPasswordRequirement(id, required) {
+  if (required && !confirm("이 계정이 다음 로그인 시 비밀번호를 반드시 변경하도록 요구할까요?\n(Supabase 대시보드에서 초기 비밀번호를 재발급한 뒤 사용하세요)")) return;
+  const { error } = await sb.from("profiles").update({ must_change_password: required }).eq("id", id);
+  if (error) { alert("변경 실패: " + error.message); return; }
+  const target = PROFILES.find(p => p.id === id);
+  if (target) target.must_change_password = required;
+  render();
 }
 
 async function saveRow(tr) {

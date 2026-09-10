@@ -39,9 +39,15 @@
 
 <script src="js/common.js"></script>
 <script>
+// 초기 비밀번호를 아직 바꾸지 않은 계정은 대시보드 대신 비밀번호 변경 화면으로 보낸다
+async function goAfterLogin(userId) {
+  const { data: profile } = await sb.from("profiles").select("must_change_password").eq("id", userId).single();
+  window.location.href = (profile && profile.must_change_password) ? "password.html" : "dashboard.html";
+}
+
 (async () => {
   const { data: { session } } = await sb.auth.getSession();
-  if (session) window.location.href = "dashboard.html";
+  if (session) await goAfterLogin(session.user.id);
 })();
 
 document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -57,13 +63,13 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     return;
   }
 
-  const { error } = await sb.auth.signInWithPassword({ email, password });
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   if (error) {
     errEl.textContent = "로그인 실패: " + error.message;
     errEl.classList.remove("hidden");
     return;
   }
-  window.location.href = "dashboard.html";
+  await goAfterLogin(data.user.id);
 });
 
 document.getElementById("reset-btn").addEventListener("click", async () => {

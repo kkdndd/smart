@@ -45,7 +45,9 @@ const METRIC_TYPE_LABEL = {
 };
 
 // 현재 로그인 세션 + 프로필을 가져오고, 없으면 로그인 페이지로 이동
-async function requireAuth() {
+// opts.skipPasswordGate: 비밀번호 변경 페이지에서만 true (무한 리다이렉트 방지)
+async function requireAuth(opts) {
+  opts = opts || {};
   const { data: { session } } = await sb.auth.getSession();
   if (!session) {
     window.location.href = "index.html";
@@ -62,6 +64,12 @@ async function requireAuth() {
     window.location.href = "index.html";
     return null;
   }
+  // 초기 비밀번호를 아직 바꾸지 않은 계정은 다른 화면을 쓰기 전에 비밀번호부터 변경하게 한다
+  if (!opts.skipPasswordGate && profile.must_change_password) {
+    window.location.href = "password.html";
+    return null;
+  }
+
   // 사업부 담당자는 배정된 사업부 범위 안에서만 조회/입력할 수 있으므로 함께 실어둔다
   const { data: buRows } = await sb.from("profile_business_units")
     .select("business_unit_id, business_units:business_unit_id(id,name,is_active)")
@@ -112,6 +120,27 @@ function roleLabel(role) {
 async function signOutAndRedirect() {
   await sb.auth.signOut();
   window.location.href = "index.html";
+}
+
+// ---- 비밀번호 ----
+// 새 비밀번호 규칙: 8자 이상 + 영문/숫자/특수문자 중 2종류 이상 조합
+// 문제가 있으면 안내 문구를, 통과하면 null을 반환한다
+function validateNewPassword(pw) {
+  if (!pw || pw.length < 8) return "비밀번호는 8자 이상이어야 합니다.";
+  if (pw.length > 72) return "비밀번호는 72자 이하로 입력해주세요.";
+  const kinds = [/[A-Za-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(re => re.test(pw)).length;
+  if (kinds < 2) return "영문·숫자·특수문자 중 2종류 이상을 섞어주세요.";
+  if (/\s/.test(pw)) return "비밀번호에 공백은 사용할 수 없습니다.";
+  return null;
+}
+
+// 비밀번호를 실제로 바꾼 뒤, 변경 요구 상태를 해제한다
+async function markPasswordChanged(profileId) {
+  const { error } = await sb.from("profiles")
+    .update({ must_change_password: false, password_changed_at: new Date().toISOString() })
+    .eq("id", profileId);
+  if (error) console.error(error);
+  return !error;
 }
 
 // 지표 유형/목표값/실적값을 바탕으로 달성률(%) 계산

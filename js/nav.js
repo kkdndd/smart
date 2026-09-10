@@ -59,6 +59,7 @@ function renderNav(profile, active) {
       <div class="who">${escapeHtml(profile.name || profile.email)}</div>
       <div>${escapeHtml(profile.companies ? profile.companies.name : '지주사')} · ${roleLabel(profile.role)}</div>
       ${isBuStaff(profile) ? `<div class="text-[11px] mt-0.5" style="color:var(--text-tertiary)">담당 사업부: ${escapeHtml((profile.business_units||[]).map(b=>b.name).join(", ")) || '미지정'}</div>` : ''}
+      <a href="password.html" class="block mt-2 text-[11px] underline" style="color:var(--text-secondary)">비밀번호 변경</a>
       <button onclick="signOutAndRedirect()" class="btn btn-secondary mt-2 w-full !py-1.5 !text-xs">로그아웃</button>
     </div>`;
 
