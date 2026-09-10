@@ -334,7 +334,7 @@ function renderCompanyOverview() {
       </div>
       <p class="text-[12px] mb-2" style="color:var(--text-secondary)">목표 ${c.goals.length}건${atRisk>0?` · <span style="color:var(--red)">위험 ${atRisk}건</span>`:''}</p>
       <div class="flex flex-wrap gap-1">
-        ${approved ? `<span class="badge ${STATUS_BADGE_CLASS.approved} !text-[10px]">승인 ${approved}</span>` : ''}
+        ${approved ? `<span class="badge ${STATUS_BADGE_CLASS.approved} !text-[10px]">합의 ${approved}</span>` : ''}
         ${submitted ? `<span class="badge ${STATUS_BADGE_CLASS.submitted} !text-[10px]">검토대기 ${submitted}</span>` : ''}
         ${revision ? `<span class="badge ${STATUS_BADGE_CLASS.revision_requested} !text-[10px]">수정요청 ${revision}</span>` : ''}
         ${draft ? `<span class="badge ${STATUS_BADGE_CLASS.draft} !text-[10px]">임시저장 ${draft}</span>` : ''}
@@ -362,7 +362,7 @@ function renderSummary() {
     </div>`;
   document.getElementById("summary-cards").innerHTML =
     cell("전체 목표", total) +
-    cell("승인완료", `${approved}<span class="text-sm font-normal" style="color:var(--text-tertiary)"> / ${total}</span>`) +
+    cell("합의완료", `${approved}<span class="text-sm font-normal" style="color:var(--text-tertiary)"> / ${total}</span>`) +
     cell("검토대기", submitted) +
     cell("평균 달성률", rate===null?'-':rate+'%', rate===null?'':(rate>=90?'text-[#2f9e5b]':rate>=60?'text-[#c98a1f]':'text-[#c94a3c]'));
 }

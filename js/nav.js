@@ -7,6 +7,7 @@ const ICONS = {
   cr: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3-3m-3 3l3 3m5 2v1a4 4 0 01-4 4H8"/></svg>',
   admin: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>',
   bu: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 0H7a1 1 0 00-1 1v3m6-4h5a1 1 0 011 1v3M4 11h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"/></svg>',
+  company: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M5 21V7l7-4 7 4v14M9 9h2m2 0h2M9 13h2m2 0h2M9 17h6"/></svg>',
   process: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h9a3 3 0 013 3v0a3 3 0 01-3 3H8a3 3 0 00-3 3v0a3 3 0 003 3h12M4 6a1.5 1.5 0 100-.001M20 6a1.5 1.5 0 100-.001M20 18a1.5 1.5 0 100-.001"/></svg>',
 };
 
@@ -17,16 +18,19 @@ function renderNav(profile, active) {
     { href: "goals.html", label: "사업계획 목표", key: "goals" },
     { href: "progress.html", label: "진행실적 입력", key: "progress" },
   ];
-  // 검토/승인: 계열사 담당자는 사업부 제출건을, 지주사 담당자는 계열사 승인건을 확정한다
+  // 검토/합의: 계열사 담당자는 사업부 제출건을, 지주사 담당자는 계열사 합의건을 확정한다
   if (isCompanyStaff(profile)) {
     links.push({ href: "review.html", label: "사업부 목표 검토", key: "review" });
   } else if (isHoldcoEditor(profile)) {
-    links.push({ href: "review.html", label: "검토/승인", key: "review" });
+    links.push({ href: "review.html", label: "검토/합의", key: "review" });
   }
   if (isHoldco(profile)) {
     links.push({ href: "change-requests.html", label: "변경요청 관리", key: "cr" });
   } else {
     links.push({ href: "change-requests.html", label: "목표 변경요청", key: "cr" });
+  }
+  if (isHoldcoEditor(profile)) {
+    links.push({ href: "companies.html", label: "계열사 관리", key: "company" });
   }
   if (canManageBusinessUnits(profile)) {
     links.push({ href: "business-units.html", label: "사업부 관리", key: "bu" });

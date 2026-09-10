@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>계열사 관리 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
+<script src="js/config.js"></script>
+</head>
+<body class="min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+  <h1 class="text-lg font-bold text-slate-800">계열사 관리</h1>
+
+  <div class="card p-4">
+    <p class="text-xs text-slate-500 mb-2">
+      더 이상 쓰지 않는 계열사는 <b>숨김</b> 처리하세요. 숨긴 계열사는 새 목표 작성·계정 배정 등의 선택 목록에서만 빠지고,
+      이미 입력된 목표·실적 데이터는 그대로 보존됩니다. 연결된 데이터가 전혀 없는 계열사만 완전 삭제할 수 있습니다.
+    </p>
+    <div class="flex gap-2">
+      <input id="new-name" placeholder="새 계열사명 (예: 대교에듀피아)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
+      <button id="add-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342] whitespace-nowrap">+ 계열사 등록</button>
+    </div>
+    <p id="add-msg" class="text-xs mt-2 hidden"></p>
+  </div>
+
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
+        <th class="py-2 px-3">계열사명</th>
+        <th class="py-2 px-3 whitespace-nowrap">구분</th>
+        <th class="py-2 px-3 whitespace-nowrap">사업부</th>
+        <th class="py-2 px-3 whitespace-nowrap">목표</th>
+        <th class="py-2 px-3 whitespace-nowrap">계정</th>
+        <th class="py-2 px-3 whitespace-nowrap">상태</th>
+        <th class="py-2 px-3"></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, COMPANIES = [], STATS = {};
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  if (!isHoldcoEditor(PROFILE)) { document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return; }
+  renderNav(PROFILE, "company");
+  document.getElementById("add-btn").addEventListener("click", addCompany);
+  document.getElementById("new-name").addEventListener("keydown", e => { if (e.key === "Enter") addCompany(); });
+  await load();
+})();
+
+function normalizeName(name) {
+  return name.replace(/\s+/g, "").toLowerCase();
+}
+
+function showAddMsg(text, isError) {
+  const el = document.getElementById("add-msg");
+  el.textContent = text;
+  el.className = "text-xs mt-2 " + (isError ? "text-red-600" : "text-green-600");
+  el.classList.remove("hidden");
+}
+
+async function load() {
+  const { data: companies, error } = await sb.from("companies").select("id,name,is_holding,is_active")
+    .order("is_holding", { ascending: false }).order("name");
+  if (error) { console.error(error); return; }
+  COMPANIES = companies || [];
+
+  // 삭제 가능 여부 판단을 위해 계열사별 연결 데이터 수를 센다
+  STATS = {};
+  COMPANIES.forEach(c => STATS[c.id] = { bu: 0, goal: 0, profile: 0 });
+  const [{ data: bus }, { data: goals }, { data: profiles }] = await Promise.all([
+    sb.from("business_units").select("company_id"),
+    sb.from("goals").select("company_id"),
+    sb.from("profiles").select("company_id")
+  ]);
+  (bus || []).forEach(b => { if (STATS[b.company_id]) STATS[b.company_id].bu++; });
+  (goals || []).forEach(g => { if (STATS[g.company_id]) STATS[g.company_id].goal++; });
+  (profiles || []).forEach(p => { if (p.company_id && STATS[p.company_id]) STATS[p.company_id].profile++; });
+
+  document.getElementById("rows").innerHTML = COMPANIES.map(c => {
+    const s = STATS[c.id];
+    const removable = s.bu === 0 && s.goal === 0 && s.profile === 0;
+    return `<tr class="border-b border-slate-100 ${c.is_active ? '' : 'bg-slate-50'}" data-id="${c.id}">
+      <td class="py-2 px-3"><input class="c-name border border-slate-300 rounded px-2 py-1 text-sm w-44 ${c.is_active?'':'text-slate-400'}" value="${escapeHtml(c.name)}" /></td>
+      <td class="py-2 px-3 text-xs text-slate-500">${c.is_holding ? '지주사' : '계열사'}</td>
+      <td class="py-2 px-3 text-slate-600">${s.bu}</td>
+      <td class="py-2 px-3 text-slate-600">${s.goal}</td>
+      <td class="py-2 px-3 text-slate-600">${s.profile}</td>
+      <td class="py-2 px-3">
+        <span class="badge ${c.is_active ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${c.is_active ? '표시' : '숨김'}</span>
+      </td>
+      <td class="py-2 px-3 text-right whitespace-nowrap">
+        <button onclick="renameCompany('${c.id}')" class="text-xs text-slate-700 underline mr-3">이름 저장</button>
+        <button onclick="toggleActive('${c.id}')" class="text-xs ${c.is_active ? 'text-amber-700' : 'text-green-700'} underline mr-3">${c.is_active ? '숨김' : '표시'}</button>
+        ${removable ? `<button onclick="deleteCompany('${c.id}')" class="text-xs text-red-500 underline">삭제</button>`
+                    : `<span class="text-xs text-slate-300" title="연결된 데이터가 있어 삭제할 수 없습니다">삭제불가</span>`}
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">등록된 계열사가 없습니다.</td></tr>`;
+}
+
+async function addCompany() {
+  const input = document.getElementById("new-name");
+  const name = input.value.trim();
+  if (!name) { showAddMsg("계열사명을 입력해주세요.", true); return; }
+
+  const norm = normalizeName(name);
+  const exact = COMPANIES.find(c => normalizeName(c.name) === norm);
+  if (exact) {
+    showAddMsg(`이미 등록된 계열사입니다: ${exact.name}${exact.is_active ? '' : ' (숨김 상태 — 표시로 되돌릴 수 있습니다)'}`, true);
+    return;
+  }
+  const similar = COMPANIES.filter(c => {
+    const n = normalizeName(c.name);
+    return n.includes(norm) || norm.includes(n);
+  });
+  if (similar.length && !confirm(`비슷한 이름의 계열사가 이미 있습니다: ${similar.map(s => s.name).join(", ")}\n그래도 새로 등록할까요?`)) return;
+
+  const { error } = await sb.from("companies").insert({ name, is_holding: false });
+  if (error) {
+    showAddMsg(error.code === "23505" ? "동일한 계열사가 이미 등록되어 있습니다." : "등록 실패: " + error.message, true);
+    return;
+  }
+  input.value = "";
+  showAddMsg(`'${name}' 계열사를 등록했습니다. 사업부는 [사업부 관리]에서 추가하세요.`, false);
+  await load();
+}
+
+async function renameCompany(id) {
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const name = tr.querySelector(".c-name").value.trim();
+  if (!name) { alert("계열사명을 입력해주세요."); return; }
+  if (COMPANIES.some(c => c.id !== id && normalizeName(c.name) === normalizeName(name))) {
+    alert("같은 이름의 계열사가 이미 있습니다.");
+    return;
+  }
+  const { error } = await sb.from("companies").update({ name }).eq("id", id);
+  if (error) { alert(error.code === "23505" ? "같은 이름의 계열사가 이미 있습니다." : "저장 실패: " + error.message); return; }
+  await load();
+}
+
+// 숨김 처리: 데이터는 그대로 두고 신규 선택 목록에서만 제외한다
+async function toggleActive(id) {
+  const c = COMPANIES.find(x => x.id === id);
+  const next = !c.is_active;
+  if (next === false) {
+    const s = STATS[id];
+    if (!confirm(`'${c.name}'을(를) 숨김 처리할까요?\n기존 목표 ${s.goal}건과 실적 데이터는 그대로 유지되고, 새 목표 작성·계정 배정 목록에서만 빠집니다.`)) return;
+  }
+  const { error } = await sb.from("companies").update({ is_active: next }).eq("id", id);
+  if (error) { alert("변경 실패: " + error.message); return; }
+  await load();
+}
+
+async function deleteCompany(id) {
+  const c = COMPANIES.find(x => x.id === id);
+  const s = STATS[id];
+  if (s.bu || s.goal || s.profile) {
+    alert("연결된 데이터가 있어 삭제할 수 없습니다. 대신 숨김 처리하면 과거 데이터를 유지한 채 목록에서 뺄 수 있습니다.");
+    return;
+  }
+  if (!confirm(`'${c.name}' 계열사를 완전히 삭제할까요? 연결된 데이터가 없어 안전하게 삭제됩니다.`)) return;
+  const { error } = await sb.from("companies").delete().eq("id", id);
+  if (error) { alert("삭제 실패: " + error.message); return; }
+  await load();
+}
+</script>
+</body>
+</html>

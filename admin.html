@@ -60,9 +60,9 @@ let PROFILE, COMPANIES = [], BUS_BY_COMPANY = {}, PROFILES = [], ASSIGNED = {};
   const { data: companies } = await sb.from("companies").select("*").order("is_holding", { ascending: false }).order("name");
   COMPANIES = companies || [];
   document.getElementById("filter-company").innerHTML =
-    `<option value="">전체 계열사</option>` + COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    `<option value="">전체 계열사</option>` + COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}${c.is_active===false?' (숨김)':''}</option>`).join("");
 
-  const { data: units } = await sb.from("business_units").select("id,name,company_id").order("name");
+  const { data: units } = await sb.from("business_units").select("id,name,company_id,is_active").order("name");
   (units || []).forEach(u => {
     if (!BUS_BY_COMPANY[u.company_id]) BUS_BY_COMPANY[u.company_id] = [];
     BUS_BY_COMPANY[u.company_id].push(u);
@@ -111,7 +111,8 @@ function render() {
       <td class="py-2 px-3">
         <select class="company-select border border-slate-300 rounded px-2 py-1 text-sm">
           <option value="">-</option>
-          ${COMPANIES.map(c => `<option value="${c.id}" ${p.company_id===c.id?'selected':''}>${escapeHtml(c.name)}</option>`).join("")}
+          ${COMPANIES.filter(c => c.is_active !== false || p.company_id === c.id)
+            .map(c => `<option value="${c.id}" ${p.company_id===c.id?'selected':''}>${escapeHtml(c.name)}${c.is_active===false?' (숨김)':''}</option>`).join("")}
         </select>
       </td>
       <td class="py-2 px-3">
@@ -149,14 +150,15 @@ function renderBuCell(tr) {
     cell.innerHTML = `<span class="text-xs text-amber-600">소속 계열사를 먼저 지정하세요</span>`;
     return;
   }
-  const units = BUS_BY_COMPANY[companyId] || [];
+  // 숨긴 사업부는 새로 배정할 수 없지만, 이미 배정되어 있으면 해제할 수 있도록 목록에 남긴다
+  const units = (BUS_BY_COMPANY[companyId] || []).filter(u => u.is_active !== false || assigned.includes(u.id));
   if (!units.length) {
     cell.innerHTML = `<span class="text-xs text-amber-600">등록된 사업부가 없습니다 (사업부 관리에서 먼저 등록)</span>`;
     return;
   }
   cell.innerHTML = `<div class="flex flex-wrap gap-x-3 gap-y-1 max-w-xs">` + units.map(u => `
-    <label class="flex items-center gap-1 text-xs text-slate-600 whitespace-nowrap">
-      <input type="checkbox" class="bu-check" value="${u.id}" ${assigned.includes(u.id)?'checked':''} /> ${escapeHtml(u.name)}
+    <label class="flex items-center gap-1 text-xs ${u.is_active===false?'text-slate-400':'text-slate-600'} whitespace-nowrap">
+      <input type="checkbox" class="bu-check" value="${u.id}" ${assigned.includes(u.id)?'checked':''} /> ${escapeHtml(u.name)}${u.is_active===false?' (숨김)':''}
     </label>`).join("") + `</div>`;
 }
 

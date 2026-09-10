@@ -23,7 +23,8 @@
   <div class="card p-4">
     <p class="text-xs text-slate-500 mb-2">
       같은 사업부가 띄어쓰기나 표기 차이로 중복 등록되지 않도록, 공백·대소문자를 무시한 이름이 같으면 등록이 차단됩니다.
-      이미 중복이 생긴 경우 아래 목록의 '병합'으로 하나로 합칠 수 있습니다.
+      이미 중복이 생긴 경우 아래 목록의 '병합'으로 하나로 합칠 수 있습니다.<br />
+      없어진 사업부는 <b>숨김</b> 처리하세요. 새 목표 작성·계정 배정 목록에서만 빠지고, 이미 입력된 목표·실적 데이터는 그대로 보존됩니다.
     </p>
     <div class="flex gap-2">
       <input id="new-bu-name" placeholder="새 사업부명 (예: 온채널)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
@@ -38,6 +39,7 @@
         <th class="py-2 px-3">사업부명</th>
         <th class="py-2 px-3 whitespace-nowrap">등록 목표</th>
         <th class="py-2 px-3 whitespace-nowrap">담당자</th>
+        <th class="py-2 px-3 whitespace-nowrap">상태</th>
         <th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -59,7 +61,7 @@ let PROFILE, COMPANY_ID = null, UNITS = [];
   renderNav(PROFILE, "bu");
 
   if (isHoldcoEditor(PROFILE)) {
-    const { data: companies } = await sb.from("companies").select("id,name,is_holding").order("is_holding", { ascending: false }).order("name");
+    const { data: companies } = await sb.from("companies").select("id,name,is_holding").eq("is_active", true).order("is_holding", { ascending: false }).order("name");
     const sel = document.getElementById("company-select");
     sel.innerHTML = (companies || []).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
     COMPANY_ID = companies && companies[0] ? companies[0].id : null;
@@ -88,7 +90,7 @@ function showAddMsg(text, isError) {
 }
 
 async function load() {
-  const { data: units, error } = await sb.from("business_units").select("id,name,company_id").eq("company_id", COMPANY_ID || "___none___").order("name");
+  const { data: units, error } = await sb.from("business_units").select("id,name,company_id,is_active").eq("company_id", COMPANY_ID || "___none___").order("name");
   if (error) { console.error(error); return; }
   UNITS = units || [];
 
@@ -104,12 +106,16 @@ async function load() {
   document.getElementById("rows").innerHTML = UNITS.map(u => {
     const gc = goalCount[u.id] || 0, sc = staffCount[u.id] || 0;
     const others = UNITS.filter(x => x.id !== u.id);
-    return `<tr class="border-b border-slate-100" data-id="${u.id}">
-      <td class="py-2 px-3"><input class="bu-name border border-slate-300 rounded px-2 py-1 text-sm w-48" value="${escapeHtml(u.name)}" /></td>
+    return `<tr class="border-b border-slate-100 ${u.is_active ? '' : 'bg-slate-50'}" data-id="${u.id}">
+      <td class="py-2 px-3"><input class="bu-name border border-slate-300 rounded px-2 py-1 text-sm w-48 ${u.is_active?'':'text-slate-400'}" value="${escapeHtml(u.name)}" /></td>
       <td class="py-2 px-3 text-slate-600">${gc}건</td>
       <td class="py-2 px-3 text-slate-600">${sc}명</td>
+      <td class="py-2 px-3">
+        <span class="badge ${u.is_active ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${u.is_active ? '표시' : '숨김'}</span>
+      </td>
       <td class="py-2 px-3 text-right whitespace-nowrap">
         <button onclick="renameUnit('${u.id}')" class="text-xs text-slate-700 underline mr-3">이름 저장</button>
+        <button onclick="toggleActive('${u.id}')" class="text-xs ${u.is_active ? 'text-amber-700' : 'text-green-700'} underline mr-3">${u.is_active ? '숨김' : '표시'}</button>
         ${others.length ? `
           <select class="merge-target border border-slate-300 rounded px-1.5 py-1 text-xs mr-1">
             <option value="">병합 대상 선택</option>
@@ -117,10 +123,20 @@ async function load() {
           </select>
           <button onclick="mergeUnit('${u.id}')" class="text-xs text-amber-700 underline mr-3">병합</button>` : ''}
         ${(gc === 0 && sc === 0) ? `<button onclick="deleteUnit('${u.id}')" class="text-xs text-red-500 underline">삭제</button>`
-          : `<span class="text-xs text-slate-300">삭제불가</span>`}
+          : `<span class="text-xs text-slate-300" title="연결된 데이터가 있어 삭제할 수 없습니다. 숨김 처리하세요">삭제불가</span>`}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-400 text-sm">등록된 사업부가 없습니다.</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="py-8 text-center text-slate-400 text-sm">등록된 사업부가 없습니다.</td></tr>`;
+}
+
+// 숨김 처리: 데이터는 그대로 두고 신규 선택 목록에서만 제외한다
+async function toggleActive(id) {
+  const u = UNITS.find(x => x.id === id);
+  const next = !u.is_active;
+  if (next === false && !confirm(`'${u.name}' 사업부를 숨김 처리할까요?\n이미 입력된 목표·실적 데이터는 그대로 유지되고, 새 목표 작성·계정 배정 목록에서만 빠집니다.`)) return;
+  const { error } = await sb.from("business_units").update({ is_active: next }).eq("id", id);
+  if (error) { alert("변경 실패: " + error.message); return; }
+  await load();
 }
 
 async function addUnit() {

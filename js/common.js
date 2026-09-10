@@ -8,7 +8,7 @@ const STATUS_LABEL = {
   submitted: "계열사 검토중",
   company_approved: "지주사 검토중",
   revision_requested: "수정요청",
-  approved: "승인완료",
+  approved: "합의완료",
   locked: "잠김"
 };
 
@@ -23,8 +23,8 @@ const STATUS_BADGE_CLASS = {
 
 const REVIEW_ACTION_LABEL = {
   submit: "제출",
-  company_approve: "계열사 승인",
-  approve: "지주사 승인",
+  company_approve: "계열사 합의",
+  approve: "지주사 합의",
   reject: "반려",
   request_revision: "수정요청",
   withdraw: "제출취소"
@@ -64,7 +64,7 @@ async function requireAuth() {
   }
   // 사업부 담당자는 배정된 사업부 범위 안에서만 조회/입력할 수 있으므로 함께 실어둔다
   const { data: buRows } = await sb.from("profile_business_units")
-    .select("business_unit_id, business_units:business_unit_id(id,name)")
+    .select("business_unit_id, business_units:business_unit_id(id,name,is_active)")
     .eq("profile_id", profile.id);
   profile.business_units = (buRows || []).map(r => r.business_units).filter(Boolean);
   profile.business_unit_ids = (buRows || []).map(r => r.business_unit_id);
@@ -158,7 +158,7 @@ function rateDotClass(rate) {
   return "bg-[#c94a3c]";
 }
 
-// 위험도 판단 (경영진 대시보드용): 미승인/미달성 목표를 빠르게 식별
+// 위험도 판단 (경영진 대시보드용): 미합의/미달성 목표를 빠르게 식별
 function riskLevel(rate, status) {
   if (status === "revision_requested") return "warn";
   if (rate === null || rate === undefined) return "none";

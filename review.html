@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>검토/승인 | 대교홀딩스 SMART</title>
+<title>검토/합의 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="stylesheet" href="js/design.css" />
@@ -13,7 +13,7 @@
 <div id="nav-root"></div>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-4">
   <div>
-    <h1 class="text-lg font-bold text-slate-800" id="page-title">검토/승인 대기 목표</h1>
+    <h1 class="text-lg font-bold text-slate-800" id="page-title">검토/합의 대기 목표</h1>
     <p class="text-xs text-slate-500 mt-1" id="page-desc"></p>
   </div>
   <div id="list-root" class="space-y-3"></div>
@@ -30,12 +30,12 @@ let PROFILE, QUEUE_STATUS;
     document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return;
   }
   renderNav(PROFILE, "review");
-  // 계열사 담당자는 사업부가 올린 목표를, 지주사 담당자는 계열사가 승인한 목표를 검토한다
+  // 계열사 담당자는 사업부가 올린 목표를, 지주사 담당자는 계열사가 합의한 목표를 검토한다
   QUEUE_STATUS = isCompanyStaff(PROFILE) ? "submitted" : "company_approved";
-  document.getElementById("page-title").textContent = isCompanyStaff(PROFILE) ? "사업부 제출 목표 검토" : "지주사 최종 검토/승인";
+  document.getElementById("page-title").textContent = isCompanyStaff(PROFILE) ? "사업부 제출 목표 검토" : "지주사 최종 검토/합의";
   document.getElementById("page-desc").textContent = isCompanyStaff(PROFILE)
-    ? "승인하면 지주사 검토 단계로 넘어가고, 수정요청하면 사업부 담당자에게 되돌아갑니다."
-    : "계열사 담당자가 승인해 올린 목표입니다. 승인하면 최종 확정됩니다.";
+    ? "합의하면 지주사 검토 단계로 넘어가고, 수정요청하면 사업부 담당자에게 되돌아갑니다."
+    : "계열사 담당자가 합의해 올린 목표입니다. 합의하면 최종 확정됩니다.";
   await load();
 })();
 
@@ -67,10 +67,10 @@ async function load() {
       <textarea id="comment-${g.id}" rows="2" placeholder="검토 의견을 남겨주세요" class="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-2"></textarea>
       <div class="flex gap-2">
         ${isCompanyStaff(PROFILE) ? `
-          <button onclick="doReview('${g.id}','company_approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인 후 지주사 제출</button>
+          <button onclick="doReview('${g.id}','company_approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">합의 후 지주사 제출</button>
           <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">사업부에 수정요청</button>
         ` : `
-          <button onclick="doReview('${g.id}','approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">최종 승인</button>
+          <button onclick="doReview('${g.id}','approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">최종 합의</button>
           <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">수정요청</button>
           <button onclick="doReview('${g.id}','reject')" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
         `}
@@ -80,7 +80,7 @@ async function load() {
 
 async function doReview(goalId, action) {
   const comment = document.getElementById("comment-"+goalId).value;
-  // company_approve: 계열사 승인 → 지주사 검토 대기 / request_revision: 이전 작성 단계로 되돌림 / reject: 임시저장으로 반려
+  // company_approve: 계열사 합의 → 지주사 검토 대기 / request_revision: 이전 작성 단계로 되돌림 / reject: 임시저장으로 반려
   const statusMap = {
     company_approve: "company_approved",
     approve: "approved",

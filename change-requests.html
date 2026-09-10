@@ -52,8 +52,8 @@ let PROFILE;
 const params = new URLSearchParams(location.search);
 const GOAL_ID = params.get("goal");
 
-// 변경요청 작성 시점의 "현재 값"을 기억해두기 위한 캐시. 승인되면 원본 행이 새 값으로
-// 덮어써지므로, 승인 이후에도 "변경 전" 값을 정확히 보여주려면 요청 제출 시점에
+// 변경요청 작성 시점의 "현재 값"을 기억해두기 위한 캐시. 합의되면 원본 행이 새 값으로
+// 덮어써지므로, 합의 이후에도 "변경 전" 값을 정확히 보여주려면 요청 제출 시점에
 // 이 값들을 함께 저장해둬야 한다 (previous_* 컬럼).
 let CURRENT_GOAL = null;
 let CURRENT_METRICS_BY_ID = {};
@@ -396,7 +396,7 @@ async function load() {
     return `<div class="card p-4">
       <div class="flex items-center justify-between mb-1">
         <span class="font-medium text-slate-800">${escapeHtml(goal.companies?.name||'')} · ${escapeHtml(goal.strategy_name||'')}</span>
-        <span class="text-xs px-2 py-0.5 rounded-full ${cr.status==='pending'?'bg-amber-100 text-amber-700':cr.status==='approved'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${{pending:'대기중',approved:'승인됨',rejected:'반려됨'}[cr.status]}</span>
+        <span class="text-xs px-2 py-0.5 rounded-full ${cr.status==='pending'?'bg-amber-100 text-amber-700':cr.status==='approved'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}">${{pending:'대기중',approved:'합의됨',rejected:'반려됨'}[cr.status]}</span>
       </div>
       <p class="text-sm text-slate-600 mb-1">사유: ${escapeHtml(cr.reason||'(작성 안 함)')}</p>
       <p class="text-xs text-slate-400 mb-3">요청자: ${cr.requester?escapeHtml(cr.requester.name||cr.requester.email):''} · ${new Date(cr.created_at).toLocaleString('ko-KR')}</p>
@@ -404,7 +404,7 @@ async function load() {
       ${changeRows}${metricChangeRows.join("")}${periodChangeRows.join("")}
       ${totalCount === 0 ? '<p class="text-xs text-slate-400">변경 항목 없음</p>' : ''}
       ${canDecide ? `<div class="flex gap-2 mt-3">
-        <button onclick="decide('${cr.id}', true)" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">승인 및 적용</button>
+        <button onclick="decide('${cr.id}', true)" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">합의 및 적용</button>
         <button onclick="decide('${cr.id}', false)" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
       </div>` : ''}
     </div>`;
