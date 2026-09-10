@@ -144,9 +144,10 @@ function renderSubmitButtons() {
 
 async function loadBusinessUnits(selectedId) {
   const sel = document.getElementById("business_unit_id");
-  // 숨김 처리된 사업부는 새로 고를 수 없지만, 이미 그 사업부로 등록된 목표를 수정할 때는 값이 유지되도록 목록에 남긴다
-  const visible = b => (b.is_active !== false) || b.id === selectedId;
-  const optionLabel = b => escapeHtml(b.name) + (b.is_active === false ? " (숨김)" : "");
+  // 표시 기간이 끝났거나 숨긴 사업부는 새로 고를 수 없지만,
+  // 이미 그 사업부로 등록된 목표를 수정할 때는 값이 유지되도록 목록에 남긴다
+  const visible = b => isSelectableInYear(b, GOAL_YEAR) || b.id === selectedId;
+  const optionLabel = b => escapeHtml(b.name) + (isSelectableInYear(b, GOAL_YEAR) ? "" : " (표시 종료)");
 
   let units = [];
   if (isBuStaff(PROFILE)) {
@@ -155,7 +156,9 @@ async function loadBusinessUnits(selectedId) {
     sel.innerHTML = units.map(b => `<option value="${b.id}">${optionLabel(b)}</option>`).join("")
       || `<option value="">배정된 사업부가 없습니다</option>`;
   } else {
-    const { data } = await sb.from("business_units").select("id,name,is_active").eq("company_id", GOAL_COMPANY_ID || "___none___").order("name");
+    const { data } = await sb.from("business_units")
+      .select("id,name,is_active,active_from_year,active_to_year")
+      .eq("company_id", GOAL_COMPANY_ID || "___none___").order("name");
     units = (data || []).filter(visible);
     sel.innerHTML = `<option value="">(전사 공통 · 사업부 미지정)</option>` + units.map(b => `<option value="${b.id}">${optionLabel(b)}</option>`).join("");
   }

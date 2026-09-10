@@ -16,8 +16,10 @@
 
   <div class="card p-4">
     <p class="text-xs text-slate-500 mb-2">
-      더 이상 쓰지 않는 계열사는 <b>숨김</b> 처리하세요. 숨긴 계열사는 새 목표 작성·계정 배정 등의 선택 목록에서만 빠지고,
-      이미 입력된 목표·실적 데이터는 그대로 보존됩니다. 연결된 데이터가 전혀 없는 계열사만 완전 삭제할 수 있습니다.
+      더 이상 사업계획을 수립하지 않는 계열사는 <b>표시 종료 연도</b>를 지정하세요.
+      예를 들어 '2025년까지'로 두면 2026년 대시보드·목표 목록에서는 빠지고, 2025년 이하를 조회할 때는 과거 실적이 그대로 보입니다.
+      신설 계열사는 <b>표시 시작 연도</b>를 지정해 미리 등록해둘 수 있습니다.
+      모든 연도에서 감추려면 [전체 숨김]을 쓰세요. 연결된 데이터가 전혀 없는 계열사만 완전 삭제할 수 있습니다.
     </p>
     <div class="flex gap-2">
       <input id="new-name" placeholder="새 계열사명 (예: 대교에듀피아)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
@@ -34,7 +36,7 @@
         <th class="py-2 px-3 whitespace-nowrap">사업부</th>
         <th class="py-2 px-3 whitespace-nowrap">목표</th>
         <th class="py-2 px-3 whitespace-nowrap">계정</th>
-        <th class="py-2 px-3 whitespace-nowrap">상태</th>
+        <th class="py-2 px-3 whitespace-nowrap">표시 기간</th>
         <th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -69,7 +71,8 @@ function showAddMsg(text, isError) {
 }
 
 async function load() {
-  const { data: companies, error } = await sb.from("companies").select("id,name,is_holding,is_active")
+  const { data: companies, error } = await sb.from("companies")
+    .select("id,name,is_holding,is_active,active_from_year,active_to_year")
     .order("is_holding", { ascending: false }).order("name");
   if (error) { console.error(error); return; }
   COMPANIES = companies || [];
@@ -89,18 +92,27 @@ async function load() {
   document.getElementById("rows").innerHTML = COMPANIES.map(c => {
     const s = STATS[c.id];
     const removable = s.bu === 0 && s.goal === 0 && s.profile === 0;
+    const visibleNow = isVisibleInYear(c, getSelectedYear());
     return `<tr class="border-b border-slate-100 ${c.is_active ? '' : 'bg-slate-50'}" data-id="${c.id}">
       <td class="py-2 px-3"><input class="c-name border border-slate-300 rounded px-2 py-1 text-sm w-44 ${c.is_active?'':'text-slate-400'}" value="${escapeHtml(c.name)}" /></td>
       <td class="py-2 px-3 text-xs text-slate-500">${c.is_holding ? '지주사' : '계열사'}</td>
       <td class="py-2 px-3 text-slate-600">${s.bu}</td>
       <td class="py-2 px-3 text-slate-600">${s.goal}</td>
       <td class="py-2 px-3 text-slate-600">${s.profile}</td>
-      <td class="py-2 px-3">
-        <span class="badge ${c.is_active ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${c.is_active ? '표시' : '숨김'}</span>
+      <td class="py-2 px-3 whitespace-nowrap">
+        <div class="flex items-center gap-1 mb-1">
+          ${yearRangeSelectHtml("from-year", c.active_from_year)}
+          <span class="text-[11px] text-slate-400">부터</span>
+          ${yearRangeSelectHtml("to-year", c.active_to_year)}
+          <span class="text-[11px] text-slate-400">까지</span>
+          <button onclick="saveRange('${c.id}')" class="text-[11px] text-slate-700 underline ml-1">적용</button>
+        </div>
+        <span class="badge ${visibleNow ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${activeRangeLabel(c)}</span>
+        <span class="text-[10px] text-slate-400 ml-1">${getSelectedYear()}년 ${visibleNow ? '노출' : '미노출'}</span>
       </td>
       <td class="py-2 px-3 text-right whitespace-nowrap">
         <button onclick="renameCompany('${c.id}')" class="text-xs text-slate-700 underline mr-3">이름 저장</button>
-        <button onclick="toggleActive('${c.id}')" class="text-xs ${c.is_active ? 'text-amber-700' : 'text-green-700'} underline mr-3">${c.is_active ? '숨김' : '표시'}</button>
+        <button onclick="toggleActive('${c.id}')" class="text-xs ${c.is_active ? 'text-amber-700' : 'text-green-700'} underline mr-3">${c.is_active ? '전체 숨김' : '전체 표시'}</button>
         ${removable ? `<button onclick="deleteCompany('${c.id}')" class="text-xs text-red-500 underline">삭제</button>`
                     : `<span class="text-xs text-slate-300" title="연결된 데이터가 있어 삭제할 수 없습니다">삭제불가</span>`}
       </td>
@@ -148,13 +160,27 @@ async function renameCompany(id) {
   await load();
 }
 
-// 숨김 처리: 데이터는 그대로 두고 신규 선택 목록에서만 제외한다
+// 표시 기간 저장: 지정한 연도 범위 밖에서는 대시보드·목표 목록에서 빠지고, 범위 안의 과거 데이터는 그대로 보인다
+async function saveRange(id) {
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const from = tr.querySelector(".from-year").value;
+  const to = tr.querySelector(".to-year").value;
+  if (from && to && Number(from) > Number(to)) { alert("시작 연도가 종료 연도보다 늦을 수 없습니다."); return; }
+
+  const { error } = await sb.from("companies")
+    .update({ active_from_year: from ? Number(from) : null, active_to_year: to ? Number(to) : null })
+    .eq("id", id);
+  if (error) { alert("저장 실패: " + error.message); return; }
+  await load();
+}
+
+// 전체 숨김: 연도와 관계없이 모든 조회 화면에서 제외 (데이터 자체는 그대로 보존)
 async function toggleActive(id) {
   const c = COMPANIES.find(x => x.id === id);
   const next = !c.is_active;
   if (next === false) {
     const s = STATS[id];
-    if (!confirm(`'${c.name}'을(를) 숨김 처리할까요?\n기존 목표 ${s.goal}건과 실적 데이터는 그대로 유지되고, 새 목표 작성·계정 배정 목록에서만 빠집니다.`)) return;
+    if (!confirm(`'${c.name}'을(를) 모든 연도에서 숨길까요?\n기존 목표 ${s.goal}건과 실적 데이터는 DB에 그대로 유지되지만, 과거 연도 대시보드에서도 보이지 않게 됩니다.\n\n과거 실적을 계속 보려면 [전체 숨김] 대신 '표시 기간'의 종료 연도를 지정하세요.`)) return;
   }
   const { error } = await sb.from("companies").update({ is_active: next }).eq("id", id);
   if (error) { alert("변경 실패: " + error.message); return; }

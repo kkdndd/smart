@@ -72,7 +72,7 @@ async function requireAuth(opts) {
 
   // 사업부 담당자는 배정된 사업부 범위 안에서만 조회/입력할 수 있으므로 함께 실어둔다
   const { data: buRows } = await sb.from("profile_business_units")
-    .select("business_unit_id, business_units:business_unit_id(id,name,is_active)")
+    .select("business_unit_id, business_units:business_unit_id(id,name,is_active,active_from_year,active_to_year)")
     .eq("profile_id", profile.id);
   profile.business_units = (buRows || []).map(r => r.business_units).filter(Boolean);
   profile.business_unit_ids = (buRows || []).map(r => r.business_unit_id);
@@ -242,6 +242,48 @@ function overduePeriods(periodType, year, entryExists, now) {
     if (periodDeadline(period, periodType) >= now) return false;
     return !entryExists(period);
   });
+}
+
+// ---- 계열사/사업부 표시 기간 ----
+// 해당 연도 조회 화면(대시보드·목표 목록 등)에 이 계열사/사업부를 노출할지 판단한다.
+//  · active_to_year 가 있으면 그 연도까지만 노출 (이후 연도에서는 빠지되 과거 데이터는 그대로 보임)
+//  · active_from_year 가 있으면 그 연도부터 노출 (신설 조직)
+//  · 둘 다 없으면 is_active(전체 표시/전체 숨김)를 따른다
+function isVisibleInYear(entity, year) {
+  if (!entity) return false;
+  if (entity.active_from_year != null && year < entity.active_from_year) return false;
+  if (entity.active_to_year != null) return year <= entity.active_to_year;
+  return entity.is_active !== false;
+}
+
+// 새 목표 작성·계정 배정 등 "신규 선택" 목록에 넣을지 판단 (숨긴 조직은 무조건 제외)
+function isSelectableInYear(entity, year) {
+  return entity && entity.is_active !== false && isVisibleInYear(entity, year);
+}
+
+// 표시 기간을 사람이 읽는 문구로
+function activeRangeLabel(entity) {
+  if (!entity) return "";
+  const from = entity.active_from_year, to = entity.active_to_year;
+  if (from != null && to != null) return `${from}~${to}년 표시`;
+  if (to != null) return `${to}년까지 표시`;
+  if (from != null) return `${from}년부터 표시`;
+  return entity.is_active === false ? "전체 숨김" : "표시중";
+}
+
+// 표시 기간 지정용 연도 드롭다운 (관리 화면 공용)
+function rangeYearOptions() {
+  const base = new Date().getFullYear();
+  const arr = [];
+  for (let y = base - 3; y <= base + 2; y++) arr.push(y);
+  return arr;
+}
+
+function yearRangeSelectHtml(cls, selected) {
+  return `<select class="${cls} border border-slate-300 rounded px-1 py-0.5 text-[11px]">
+    <option value="">제한 없음</option>
+    ${rangeYearOptions().map(y => `<option value="${y}" ${String(selected) === String(y) ? 'selected' : ''}>${y}년</option>`).join("")}
+  </select>`;
 }
 
 // ---- 사업연도 선택 (사이드바 드롭다운에서 고른 연도를 전 페이지에서 공유) ----

@@ -146,11 +146,24 @@ const centerTextPlugin = {
 })();
 
 async function loadData() {
+  // 해당 사업연도에 표시 대상이 아닌 계열사·사업부(표시 기간이 지났거나 숨김 처리된 조직)는 집계에서 제외한다
+  const [{ data: companies }, { data: units }] = await Promise.all([
+    sb.from("companies").select("id,is_active,active_from_year,active_to_year"),
+    sb.from("business_units").select("id,is_active,active_from_year,active_to_year")
+  ]);
+  const hiddenCompanyIds = new Set((companies || []).filter(c => !isVisibleInYear(c, YEAR)).map(c => c.id));
+  const hiddenBuIds = new Set((units || []).filter(b => !isVisibleInYear(b, YEAR)).map(b => b.id));
+
   let q = sb.from("goals").select("*, companies:company_id(id,name), business_units:business_unit_id(id,name)").eq("year", YEAR);
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   const { data: goals, error } = await q;
   if (error) { console.error(error); return; }
-  ALL_GOALS = goals || [];
+  ALL_GOALS = (goals || []).filter(g => {
+    // 계열사 단위 제외는 전사 집계 화면(지주사)에만 적용해, 소속 담당자가 자기 회사 데이터를 못 보게 되는 일은 없게 한다
+    if (isHoldco(PROFILE) && hiddenCompanyIds.has(g.company_id)) return false;
+    if (g.business_unit_id && hiddenBuIds.has(g.business_unit_id)) return false;
+    return true;
+  });
 
   const goalIds = ALL_GOALS.map(g => g.id);
   if (goalIds.length === 0) return;

@@ -24,7 +24,8 @@
     <p class="text-xs text-slate-500 mb-2">
       같은 사업부가 띄어쓰기나 표기 차이로 중복 등록되지 않도록, 공백·대소문자를 무시한 이름이 같으면 등록이 차단됩니다.
       이미 중복이 생긴 경우 아래 목록의 '병합'으로 하나로 합칠 수 있습니다.<br />
-      없어진 사업부는 <b>숨김</b> 처리하세요. 새 목표 작성·계정 배정 목록에서만 빠지고, 이미 입력된 목표·실적 데이터는 그대로 보존됩니다.
+      조직개편으로 없어진 사업부는 <b>표시 종료 연도</b>를 지정하세요. 지정한 연도까지는 과거 실적이 그대로 보이고, 그 이후 연도에서만 빠집니다.
+      모든 연도에서 감추려면 [전체 숨김]을 쓰세요. 어느 쪽이든 이미 입력된 목표·실적 데이터는 보존됩니다.
     </p>
     <div class="flex gap-2">
       <input id="new-bu-name" placeholder="새 사업부명 (예: 온채널)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
@@ -39,7 +40,7 @@
         <th class="py-2 px-3">사업부명</th>
         <th class="py-2 px-3 whitespace-nowrap">등록 목표</th>
         <th class="py-2 px-3 whitespace-nowrap">담당자</th>
-        <th class="py-2 px-3 whitespace-nowrap">상태</th>
+        <th class="py-2 px-3 whitespace-nowrap">표시 기간</th>
         <th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -90,7 +91,9 @@ function showAddMsg(text, isError) {
 }
 
 async function load() {
-  const { data: units, error } = await sb.from("business_units").select("id,name,company_id,is_active").eq("company_id", COMPANY_ID || "___none___").order("name");
+  const { data: units, error } = await sb.from("business_units")
+    .select("id,name,company_id,is_active,active_from_year,active_to_year")
+    .eq("company_id", COMPANY_ID || "___none___").order("name");
   if (error) { console.error(error); return; }
   UNITS = units || [];
 
@@ -106,16 +109,25 @@ async function load() {
   document.getElementById("rows").innerHTML = UNITS.map(u => {
     const gc = goalCount[u.id] || 0, sc = staffCount[u.id] || 0;
     const others = UNITS.filter(x => x.id !== u.id);
+    const visibleNow = isVisibleInYear(u, getSelectedYear());
     return `<tr class="border-b border-slate-100 ${u.is_active ? '' : 'bg-slate-50'}" data-id="${u.id}">
       <td class="py-2 px-3"><input class="bu-name border border-slate-300 rounded px-2 py-1 text-sm w-48 ${u.is_active?'':'text-slate-400'}" value="${escapeHtml(u.name)}" /></td>
       <td class="py-2 px-3 text-slate-600">${gc}건</td>
       <td class="py-2 px-3 text-slate-600">${sc}명</td>
-      <td class="py-2 px-3">
-        <span class="badge ${u.is_active ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${u.is_active ? '표시' : '숨김'}</span>
+      <td class="py-2 px-3 whitespace-nowrap">
+        <div class="flex items-center gap-1 mb-1">
+          ${yearRangeSelectHtml("from-year", u.active_from_year)}
+          <span class="text-[11px] text-slate-400">부터</span>
+          ${yearRangeSelectHtml("to-year", u.active_to_year)}
+          <span class="text-[11px] text-slate-400">까지</span>
+          <button onclick="saveRange('${u.id}')" class="text-[11px] text-slate-700 underline ml-1">적용</button>
+        </div>
+        <span class="badge ${visibleNow ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${activeRangeLabel(u)}</span>
+        <span class="text-[10px] text-slate-400 ml-1">${getSelectedYear()}년 ${visibleNow ? '노출' : '미노출'}</span>
       </td>
       <td class="py-2 px-3 text-right whitespace-nowrap">
         <button onclick="renameUnit('${u.id}')" class="text-xs text-slate-700 underline mr-3">이름 저장</button>
-        <button onclick="toggleActive('${u.id}')" class="text-xs ${u.is_active ? 'text-amber-700' : 'text-green-700'} underline mr-3">${u.is_active ? '숨김' : '표시'}</button>
+        <button onclick="toggleActive('${u.id}')" class="text-xs ${u.is_active ? 'text-amber-700' : 'text-green-700'} underline mr-3">${u.is_active ? '전체 숨김' : '전체 표시'}</button>
         ${others.length ? `
           <select class="merge-target border border-slate-300 rounded px-1.5 py-1 text-xs mr-1">
             <option value="">병합 대상 선택</option>
@@ -129,11 +141,25 @@ async function load() {
   }).join("") || `<tr><td colspan="5" class="py-8 text-center text-slate-400 text-sm">등록된 사업부가 없습니다.</td></tr>`;
 }
 
-// 숨김 처리: 데이터는 그대로 두고 신규 선택 목록에서만 제외한다
+// 표시 기간 저장: 지정한 연도 범위 밖에서는 목록·필터에서 빠지고, 범위 안의 과거 데이터는 그대로 보인다
+async function saveRange(id) {
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const from = tr.querySelector(".from-year").value;
+  const to = tr.querySelector(".to-year").value;
+  if (from && to && Number(from) > Number(to)) { alert("시작 연도가 종료 연도보다 늦을 수 없습니다."); return; }
+
+  const { error } = await sb.from("business_units")
+    .update({ active_from_year: from ? Number(from) : null, active_to_year: to ? Number(to) : null })
+    .eq("id", id);
+  if (error) { alert("저장 실패: " + error.message); return; }
+  await load();
+}
+
+// 전체 숨김: 연도와 관계없이 모든 조회 화면에서 제외 (데이터 자체는 그대로 보존)
 async function toggleActive(id) {
   const u = UNITS.find(x => x.id === id);
   const next = !u.is_active;
-  if (next === false && !confirm(`'${u.name}' 사업부를 숨김 처리할까요?\n이미 입력된 목표·실적 데이터는 그대로 유지되고, 새 목표 작성·계정 배정 목록에서만 빠집니다.`)) return;
+  if (next === false && !confirm(`'${u.name}' 사업부를 모든 연도에서 숨길까요?\n입력된 목표·실적 데이터는 그대로 유지되지만, 과거 연도 화면에서도 보이지 않게 됩니다.\n\n과거 실적을 계속 보려면 '표시 기간'의 종료 연도를 지정하세요.`)) return;
   const { error } = await sb.from("business_units").update({ is_active: next }).eq("id", id);
   if (error) { alert("변경 실패: " + error.message); return; }
   await load();

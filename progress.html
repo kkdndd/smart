@@ -49,10 +49,22 @@ function companyOrderIndex(name) {
 })();
 
 async function loadGoalOptions() {
-  let q = sb.from("goals").select("id, strategy_name, seq_no, status, indicator_name, companies:company_id(name), business_units:business_unit_id(name)").eq("year", YEAR).order("seq_no");
+  let q = sb.from("goals").select("id, strategy_name, seq_no, status, indicator_name, company_id, business_unit_id, companies:company_id(name), business_units:business_unit_id(name)").eq("year", YEAR).order("seq_no");
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   const { data } = await q;
-  ALL_GOALS = data || [];
+
+  // 해당 사업연도에 표시 대상이 아닌 계열사·사업부의 목표는 목록에서 제외한다
+  const [{ data: companies }, { data: units }] = await Promise.all([
+    sb.from("companies").select("id,is_active,active_from_year,active_to_year"),
+    sb.from("business_units").select("id,is_active,active_from_year,active_to_year")
+  ]);
+  const hiddenCompanyIds = new Set((companies || []).filter(c => !isVisibleInYear(c, YEAR)).map(c => c.id));
+  const hiddenBuIds = new Set((units || []).filter(b => !isVisibleInYear(b, YEAR)).map(b => b.id));
+  ALL_GOALS = (data || []).filter(g => {
+    if (isHoldco(PROFILE) && hiddenCompanyIds.has(g.company_id)) return false;
+    if (g.business_unit_id && hiddenBuIds.has(g.business_unit_id)) return false;
+    return true;
+  });
   if (isHoldco(PROFILE)) {
     ALL_GOALS.sort((a, b) => {
       const ci = companyOrderIndex(a.companies.name) - companyOrderIndex(b.companies.name);

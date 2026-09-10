@@ -51,8 +51,9 @@ let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "";
 
   if (isHoldco(PROFILE)) {
     // 지주사 담당자/경영진은 특정 회사에 소속되지 않으므로, 계열사를 드롭다운으로 골라서 조회한다
-    const { data: companies } = await sb.from("companies").select("*").eq("is_active", true).order("is_holding", { ascending: false }).order("name");
-    COMPANIES = companies || [];
+    const { data: companies } = await sb.from("companies").select("*").order("is_holding", { ascending: false }).order("name");
+    // 선택한 사업연도에 표시 대상인 계열사만 목록에 올린다 (표시 기간이 지난 계열사는 그 이후 연도에서 제외)
+    COMPANIES = (companies || []).filter(c => isVisibleInYear(c, getSelectedYear()));
     SELECTED_COMPANY_ID = COMPANIES[0] ? COMPANIES[0].id : null;
     const sel = document.getElementById("company-select");
     sel.innerHTML = COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
@@ -81,8 +82,10 @@ async function loadBuFilter() {
     options = [...PROFILE.business_units].sort((a, b) => a.name.localeCompare(b.name, "ko"));
   } else {
     if (!SELECTED_COMPANY_ID) return;
-    const { data } = await sb.from("business_units").select("id,name").eq("company_id", SELECTED_COMPANY_ID).eq("is_active", true).order("name");
-    options = data || [];
+    const { data } = await sb.from("business_units")
+      .select("id,name,is_active,active_from_year,active_to_year")
+      .eq("company_id", SELECTED_COMPANY_ID).order("name");
+    options = (data || []).filter(b => isVisibleInYear(b, getSelectedYear()));
   }
   sel.innerHTML = `<option value="">전체 사업부</option>` + options.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
   sel.value = SELECTED_BU_ID;
