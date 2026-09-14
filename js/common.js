@@ -1,6 +1,48 @@
 // 공통 유틸리티: Supabase 클라이언트 초기화, 인증 체크, 달성률 계산 등
 
-const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+// ---- 로그인 세션 저장 방식 ----
+// supabase-js 기본값은 localStorage라서 브라우저를 껐다 켜도 토큰이 남아 자동 로그인이 된다.
+// 브라우저(또는 탭)를 닫으면 로그인이 풀리도록 sessionStorage에 저장한다.
+// sessionStorage는 탭 단위로 유지되므로, 이 앱처럼 페이지 이동이 전체 새로고침이어도 같은 탭 안에서는 로그인이 끊기지 않는다.
+const _memoryAuthStore = {};
+const AUTH_STORAGE = {
+  getItem(key) {
+    try { return window.sessionStorage.getItem(key); }
+    catch (e) { return Object.prototype.hasOwnProperty.call(_memoryAuthStore, key) ? _memoryAuthStore[key] : null; }
+  },
+  setItem(key, value) {
+    try { window.sessionStorage.setItem(key, value); }
+    catch (e) { _memoryAuthStore[key] = value; }
+  },
+  removeItem(key) {
+    try { window.sessionStorage.removeItem(key); }
+    catch (e) { delete _memoryAuthStore[key]; }
+  }
+};
+
+// 방식 전환 이전에 localStorage에 저장돼 있던 토큰 정리.
+// 그대로 두면 디스크에 로그인 토큰이 계속 남기 때문에, 페이지를 열 때마다 한 번씩 확인해 지운다.
+(function clearLegacyAuthTokens() {
+  try {
+    const stale = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith("sb-") && key.indexOf("-auth-token") !== -1) stale.push(key);
+    }
+    stale.forEach(key => window.localStorage.removeItem(key));
+  } catch (e) {
+    // 시크릿 모드 등에서 localStorage 접근이 막혀 있을 수 있으므로 무시한다
+  }
+})();
+
+const sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
+  auth: {
+    storage: AUTH_STORAGE,
+    persistSession: true,      // 같은 탭 안에서는 페이지를 이동해도 로그인 유지
+    autoRefreshToken: true,    // 1시간짜리 액세스 토큰 자동 갱신
+    detectSessionInUrl: true   // 비밀번호 재설정 이메일 링크(#access_token=...) 처리
+  }
+});
 
 // 결재 흐름: 사업부 담당자 작성 → 계열사 담당자 검토 → 지주사 담당자 최종 확정
 const STATUS_LABEL = {
