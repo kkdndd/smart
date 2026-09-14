@@ -96,11 +96,14 @@ async function loadBuFilter() {
 document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
 
 async function loadGoals() {
-  let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear()).order("seq_no");
+  let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear());
   q = q.eq("company_id", SELECTED_COMPANY_ID || "___none___");
   if (SELECTED_BU_ID) q = q.eq("business_unit_id", SELECTED_BU_ID);
-  const { data: goals, error } = await q;
+  const { data: rawGoals, error } = await q;
   if (error) { console.error(error); return; }
+
+  // 관리번호가 사업부별로 1번부터 매겨지므로, 사업부로 묶은 뒤 번호 순으로 보여준다
+  const goals = sortGoalsByBusinessUnit(rawGoals || []);
 
   const goalIds = (goals||[]).map(g=>g.id);
   let reviewsByGoal = {};

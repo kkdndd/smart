@@ -286,6 +286,24 @@ function overduePeriods(periodType, year, entryExists, now) {
   });
 }
 
+// ---- 목표 관리번호(seq_no) ----
+// 관리번호는 "연도 + 계열사 + 사업부" 그룹 안에서 1번부터 매겨진다. (예: 2026년 강원심층수 영업 1번)
+// 따라서 목록에서는 사업부로 묶은 뒤 번호 순으로 정렬해야 번호가 순서대로 읽힌다.
+function sortGoalsByBusinessUnit(goals) {
+  return [...goals].sort((a, b) => {
+    const an = a.business_units ? a.business_units.name : "";
+    const bn = b.business_units ? b.business_units.name : "";
+    if (an !== bn) return an.localeCompare(bn, "ko");
+    return (a.seq_no ?? 0) - (b.seq_no ?? 0);
+  });
+}
+
+// 목표를 가리키는 표기: "영업 1번"
+function goalRefLabel(goal) {
+  const bu = goal.business_units ? goal.business_units.name : "전사 공통";
+  return `${bu} ${goal.seq_no ?? "-"}번`;
+}
+
 // ---- 계열사/사업부 표시 기간 ----
 // 해당 연도 조회 화면(대시보드·목표 목록 등)에 이 계열사/사업부를 노출할지 판단한다.
 //  · active_to_year 가 있으면 그 연도까지만 노출 (이후 연도에서는 빠지되 과거 데이터는 그대로 보임)

@@ -65,12 +65,17 @@ async function loadGoalOptions() {
     if (g.business_unit_id && hiddenBuIds.has(g.business_unit_id)) return false;
     return true;
   });
-  if (isHoldco(PROFILE)) {
-    ALL_GOALS.sort((a, b) => {
+  // 관리번호가 사업부별 1번부터이므로, 회사 → 사업부 → 번호 순으로 정렬해야 번호가 순서대로 읽힌다
+  ALL_GOALS.sort((a, b) => {
+    if (isHoldco(PROFILE)) {
       const ci = companyOrderIndex(a.companies.name) - companyOrderIndex(b.companies.name);
-      return ci !== 0 ? ci : (a.seq_no ?? 0) - (b.seq_no ?? 0);
-    });
-  }
+      if (ci !== 0) return ci;
+    }
+    const an = a.business_units ? a.business_units.name : "";
+    const bn = b.business_units ? b.business_units.name : "";
+    if (an !== bn) return an.localeCompare(bn, "ko");
+    return (a.seq_no ?? 0) - (b.seq_no ?? 0);
+  });
   renderGoalList();
 }
 

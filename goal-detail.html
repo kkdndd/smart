@@ -63,7 +63,9 @@ async function load() {
   document.getElementById("title").textContent = goal.strategy_name;
   document.getElementById("status-badge").className = "px-2 py-0.5 rounded-full text-xs " + STATUS_BADGE_CLASS[goal.status];
   document.getElementById("status-badge").textContent = STATUS_LABEL[goal.status];
-  document.getElementById("meta").textContent = `${goal.companies.name} · ${goal.business_units ? goal.business_units.name : '사업부 미지정'} · 관리번호 ${goal.seq_no ?? '-'}`;
+  // 관리번호는 사업부별로 매겨지므로 "2026년 강원심층수 영업 1번 목표" 형태로 읽히게 표기한다
+  document.getElementById("meta").textContent =
+    `${goal.year}년 · ${goal.companies.name} · ${goalRefLabel(goal)} 목표`;
   document.getElementById("f_specific").innerHTML = nl2br(goal.specific_text) || '-';
   document.getElementById("f_measurable").innerHTML = nl2br(goal.measurable_text) || '-';
   document.getElementById("f_achievable").innerHTML = nl2br(goal.achievable_text) || '-';
