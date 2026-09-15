@@ -29,10 +29,14 @@
   <div class="card overflow-x-auto">
     <table class="w-full">
       <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
-        <th class="py-2 px-3">#</th><th class="py-2 px-3 whitespace-nowrap">사업부</th><th class="py-2 px-3">전략(목표)</th>
-        <th class="py-2 px-3">지표</th>
-        <th class="py-2 px-3">Specific (무엇을 할지)</th>
-        <th class="py-2 px-3 whitespace-nowrap">상태</th><th class="py-2 px-3">최근 검토 의견</th><th class="py-2 px-3"></th>
+        <th class="py-2 px-3 whitespace-nowrap">사업부</th>
+        <th class="py-2 px-3 whitespace-nowrap">#</th>
+        <th class="py-2 px-3">전략(목표)</th>
+        <th class="py-2 px-3">핵심지표 · 목표값</th>
+        <th class="py-2 px-3">S · 무엇을 / M · 어떻게 측정</th>
+        <th class="py-2 px-3 whitespace-nowrap">상태</th>
+        <th class="py-2 px-3">최근 검토 의견</th>
+        <th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -106,24 +110,80 @@ async function loadGoals() {
   const goals = sortGoalsByBusinessUnit(rawGoals || []);
 
   const goalIds = (goals||[]).map(g=>g.id);
-  let reviewsByGoal = {};
+  let reviewsByGoal = {}, metricsByGoal = {}, periodTargetCount = {};
   if (goalIds.length) {
-    const { data: reviews } = await sb.from("goal_reviews").select("*").in("goal_id", goalIds).order("created_at", { ascending: false });
+    const [{ data: reviews }, { data: metrics }] = await Promise.all([
+      sb.from("goal_reviews").select("*").in("goal_id", goalIds).order("created_at", { ascending: false }),
+      // 목록의 '지표'는 실제 KPI 데이터(goal_metrics)를 쓴다. 목표값·단위까지 함께 보여주기 위함
+      sb.from("goal_metrics").select("id, goal_id, metric_name, metric_type, unit, target_value").in("goal_id", goalIds)
+    ]);
     (reviews||[]).forEach(r => { if(!reviewsByGoal[r.goal_id]) reviewsByGoal[r.goal_id] = r; });
+    (metrics||[]).forEach(m => {
+      if (!metricsByGoal[m.goal_id]) metricsByGoal[m.goal_id] = [];
+      metricsByGoal[m.goal_id].push(m);
+    });
+    const metricIds = (metrics||[]).map(m => m.id);
+    if (metricIds.length) {
+      // 연간 목표값 대신 월별/분기별로만 목표를 잡은 지표를 구분하기 위해 기간별 목표 유무를 센다
+      const { data: pts } = await sb.from("goal_period_targets").select("goal_metric_id").in("goal_metric_id", metricIds);
+      (pts||[]).forEach(p => { periodTargetCount[p.goal_metric_id] = (periodTargetCount[p.goal_metric_id] || 0) + 1; });
+    }
   }
 
+  // 지표 셀: 지표명 + 목표값(또는 목표 미설정 경고)
+  const metricCellHtml = (goal) => {
+    const list = metricsByGoal[goal.id] || [];
+    if (!list.length) {
+      return goal.indicator_name
+        ? `<div class="text-slate-600">${escapeHtml(goal.indicator_name)}</div>`
+        : '<span class="text-slate-300">-</span>';
+    }
+    return list.map(m => {
+      let sub, subClass = "text-slate-400";
+      if (m.metric_type === "milestone") sub = "완료 여부로 관리";
+      else if (m.metric_type === "qualitative") sub = "진척도(%) 자가평가";
+      else if (m.target_value !== null && m.target_value !== undefined) sub = `목표 ${Number(m.target_value).toLocaleString()}${m.unit ? " " + m.unit : ""}`;
+      else if (periodTargetCount[m.id]) sub = "기간별 목표 설정됨";
+      else { sub = "목표값 미설정"; subClass = "text-amber-600"; }
+      return `<div class="mb-0.5 last:mb-0">
+        <div class="text-slate-700">${escapeHtml(m.metric_name)}</div>
+        <div class="text-[11px] ${subClass}">${sub}</div>
+      </div>`;
+    }).join("");
+  };
+
+  // S/M 셀: 두 항목을 라벨과 함께 위아래로 (열을 나누면 둘 다 잘려서 한 칸에 묶음)
+  const smCellHtml = (g) => {
+    const line = (label, bg, fg, text) => `<div class="flex gap-1.5 mb-1 last:mb-0">
+      <span class="shrink-0 px-1 rounded text-[10px] font-semibold h-fit" style="background:${bg};color:${fg}">${label}</span>
+      <span class="line-clamp-2">${nl2br(text) || '<span class="text-slate-300">-</span>'}</span>
+    </div>`;
+    return line("S", "#EEF0F4", "#3A4356", g.specific_text) + line("M", "#EAF0F8", "#4C6FA5", g.measurable_text);
+  };
+
+  let prevBu = null, prevStrategy = null;
   document.getElementById("rows").innerHTML = (goals||[]).map(g => {
     const lastReview = reviewsByGoal[g.id];
     const editable = canEditGoal(PROFILE, g);
-    return `<tr class="border-b border-slate-100 cursor-pointer hover:bg-[var(--surface-hover)]" onclick="window.location.href='goal-detail.html?id=${g.id}'">
-      <td class="py-2 px-3 text-sm">${g.seq_no ?? ''}</td>
-      <td class="py-2 px-3 text-sm whitespace-nowrap">${escapeHtml(g.business_units ? g.business_units.name : '')}</td>
-      <td class="py-2 px-3 text-sm font-medium text-slate-800">${escapeHtml(g.strategy_name)}</td>
-      <td class="py-2 px-3 text-xs text-slate-600">${escapeHtml(g.indicator_name) || '<span class="text-slate-300">-</span>'}</td>
-      <td class="py-2 px-3 text-xs text-slate-600 max-w-xs"><span class="line-clamp-2">${nl2br(g.specific_text) || '<span class=\"text-slate-300\">-</span>'}</span></td>
-      <td class="py-2 px-3 text-sm whitespace-nowrap"><span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
-      <td class="py-2 px-3 text-xs text-slate-500 max-w-xs">${lastReview ? escapeHtml(lastReview.comment||'') : ''}</td>
-      <td class="py-2 px-3 text-sm text-right whitespace-nowrap" onclick="event.stopPropagation()">
+    const buName = g.business_units ? g.business_units.name : "전사 공통";
+
+    // 사업부가 바뀌는 지점에 구분선을 넣어, 번호가 1부터 다시 시작하는 이유가 자연스럽게 읽히게 한다
+    const isNewBu = buName !== prevBu;
+    if (isNewBu) prevStrategy = null;
+    // 같은 전략이 연달아 나오면 두 번째 행부터는 비워 반복 텍스트를 없앤다
+    const showStrategy = g.strategy_name !== prevStrategy;
+    prevBu = buName;
+    prevStrategy = g.strategy_name;
+
+    return `<tr class="cursor-pointer hover:bg-[var(--surface-hover)] ${isNewBu ? 'border-t-2 border-slate-200' : 'border-t border-slate-100'}" onclick="window.location.href='goal-detail.html?id=${g.id}'">
+      <td class="py-2 px-3 text-sm whitespace-nowrap align-top ${isNewBu ? 'font-medium text-slate-700' : 'text-slate-300'}">${isNewBu ? escapeHtml(buName) : ''}</td>
+      <td class="py-2 px-3 text-sm align-top text-slate-500">${g.seq_no ?? ''}</td>
+      <td class="py-2 px-3 text-sm align-top ${showStrategy ? 'font-medium text-slate-800' : ''}">${showStrategy ? escapeHtml(g.strategy_name) : '<span class="text-slate-300">〃</span>'}</td>
+      <td class="py-2 px-3 text-xs align-top">${metricCellHtml(g)}</td>
+      <td class="py-2 px-3 text-xs text-slate-600 align-top max-w-xs">${smCellHtml(g)}</td>
+      <td class="py-2 px-3 text-sm whitespace-nowrap align-top"><span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
+      <td class="py-2 px-3 text-xs text-slate-500 align-top max-w-[10rem]"><span class="line-clamp-2">${lastReview ? escapeHtml(lastReview.comment||'') : ''}</span></td>
+      <td class="py-2 px-3 text-sm text-right whitespace-nowrap align-top" onclick="event.stopPropagation()">
         <a href="goal-detail.html?id=${g.id}" class="text-slate-500 hover:underline mr-3">상세</a>
         ${editable ? `<a href="goal-form.html?id=${g.id}" class="text-slate-800 font-medium hover:underline">수정</a>` : ''}
       </td>
