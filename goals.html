@@ -24,7 +24,10 @@
         <select id="bu-select" class="border border-slate-300 rounded px-2 py-1 text-sm font-medium text-slate-700 bg-white"></select>
       </div>
     </div>
-    <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
+    <div class="flex items-center gap-2">
+      <button id="copy-prev-btn" class="hidden bg-white border border-slate-300 text-slate-700 text-sm rounded px-3 py-2 hover:bg-slate-100 whitespace-nowrap">작년 목표 불러오기</button>
+      <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
+    </div>
   </div>
   <div class="card overflow-x-auto">
     <table class="w-full">
@@ -52,6 +55,7 @@ let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "";
   renderNav(PROFILE, "goals");
   document.getElementById("page-title").textContent = `${getSelectedYear()}년 사업계획 목표`;
   document.getElementById("new-btn").classList.toggle("hidden", !canWriteGoals(PROFILE));
+  document.getElementById("copy-prev-btn").classList.toggle("hidden", !canWriteGoals(PROFILE));
 
   if (isHoldco(PROFILE)) {
     // 지주사 담당자/경영진은 특정 회사에 소속되지 않으므로, 계열사를 드롭다운으로 골라서 조회한다
@@ -98,6 +102,64 @@ async function loadBuFilter() {
 }
 
 document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
+document.getElementById("copy-prev-btn").addEventListener("click", copyPreviousYearGoals);
+
+// 작년에 쓰던 전략·지표를 그대로 복사해 올해 초안을 만든다.
+// 지표는 KPI 기준정보에 연결된 채로 넘어오므로, 매년 이름을 다시 타이핑할 필요가 없고 전년 비교도 유지된다.
+async function copyPreviousYearGoals() {
+  const year = getSelectedYear();
+  const prevYear = year - 1;
+  if (!confirm(`${prevYear}년 목표를 ${year}년으로 복사할까요?\n\n전략·SMART 내용·지표 구성은 그대로 가져오고, 기준값과 목표값은 비운 상태로 [임시저장]됩니다.\n이미 같은 전략이 등록된 사업부는 건너뜁니다.`)) return;
+
+  const btn = document.getElementById("copy-prev-btn");
+  btn.disabled = true; btn.textContent = "불러오는 중...";
+  try {
+    let prevQ = sb.from("goals").select("*, goal_metrics(*)").eq("year", prevYear).eq("company_id", SELECTED_COMPANY_ID || "___none___");
+    const { data: prevGoals, error } = await prevQ;
+    if (error) { alert("작년 목표를 불러오지 못했습니다: " + error.message); return; }
+    if (!prevGoals || !prevGoals.length) { alert(`${prevYear}년에 등록된 목표가 없습니다.`); return; }
+
+    // 사업부 담당자는 담당 사업부 것만 복사한다
+    const source = isBuStaff(PROFILE)
+      ? prevGoals.filter(g => g.business_unit_id && PROFILE.business_unit_ids.includes(g.business_unit_id))
+      : prevGoals;
+    if (!source.length) { alert(`${prevYear}년에 담당 사업부의 목표가 없습니다.`); return; }
+
+    // 올해 이미 있는 전략은 중복 복사하지 않는다
+    const { data: thisYear } = await sb.from("goals").select("business_unit_id, strategy_name")
+      .eq("year", year).eq("company_id", SELECTED_COMPANY_ID || "___none___");
+    const existing = new Set((thisYear || []).map(g => `${g.business_unit_id || ""}|${g.strategy_name}`));
+
+    let copied = 0, skipped = 0;
+    for (const g of source) {
+      if (existing.has(`${g.business_unit_id || ""}|${g.strategy_name}`)) { skipped++; continue; }
+      const { data: newGoal, error: insErr } = await sb.from("goals").insert({
+        company_id: g.company_id, business_unit_id: g.business_unit_id, year,
+        strategy_name: g.strategy_name, specific_text: g.specific_text, measurable_text: g.measurable_text,
+        achievable_text: g.achievable_text, relevant_text: g.relevant_text, timebound_text: g.timebound_text,
+        follow_up_action: g.follow_up_action, remarks: g.remarks,
+        status: "draft", created_by: PROFILE.id
+      }).select("id").single();
+      if (insErr) { alert("복사 실패: " + insErr.message); break; }
+
+      const metrics = (g.goal_metrics || []).map(m => ({
+        goal_id: newGoal.id, kpi_definition_id: m.kpi_definition_id,
+        metric_name: m.metric_name, metric_type: m.metric_type, unit: m.unit, period_type: m.period_type,
+        baseline_value: null, target_value: null // 올해 목표는 새로 정해야 하므로 비워둔다
+      }));
+      if (metrics.length) {
+        const { error: mErr } = await sb.from("goal_metrics").insert(metrics);
+        if (mErr) { alert("지표 복사 실패: " + mErr.message); break; }
+      }
+      copied++;
+    }
+
+    alert(`${copied}건을 ${year}년 임시저장으로 복사했습니다.${skipped ? `\n(이미 등록된 전략 ${skipped}건은 건너뜀)` : ""}\n\n각 목표를 열어 기준값·목표값을 입력해주세요.`);
+    await loadGoals();
+  } finally {
+    btn.disabled = false; btn.textContent = "작년 목표 불러오기";
+  }
+}
 
 async function loadGoals() {
   let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear());
@@ -115,7 +177,9 @@ async function loadGoals() {
     const [{ data: reviews }, { data: metrics }] = await Promise.all([
       sb.from("goal_reviews").select("*").in("goal_id", goalIds).order("created_at", { ascending: false }),
       // 목록의 '지표'는 실제 KPI 데이터(goal_metrics)를 쓴다. 목표값·단위까지 함께 보여주기 위함
-      sb.from("goal_metrics").select("id, goal_id, metric_name, metric_type, unit, target_value").in("goal_id", goalIds)
+      sb.from("goal_metrics")
+        .select("id, goal_id, metric_name, metric_type, unit, target_value, kpi_definitions:kpi_definition_id(name, unit)")
+        .in("goal_id", goalIds)
     ]);
     (reviews||[]).forEach(r => { if(!reviewsByGoal[r.goal_id]) reviewsByGoal[r.goal_id] = r; });
     (metrics||[]).forEach(m => {
@@ -139,14 +203,17 @@ async function loadGoals() {
         : '<span class="text-slate-300">-</span>';
     }
     return list.map(m => {
+      // 기준정보에 연결돼 있으면 그쪽 이름·단위를 보여준다 (이름을 정비해도 목록에 바로 반영됨)
+      const name = (m.kpi_definitions && m.kpi_definitions.name) || m.metric_name;
+      const unit = m.unit || (m.kpi_definitions && m.kpi_definitions.unit) || "";
       let sub, subClass = "text-slate-400";
       if (m.metric_type === "milestone") sub = "완료 여부로 관리";
       else if (m.metric_type === "qualitative") sub = "진척도(%) 자가평가";
-      else if (m.target_value !== null && m.target_value !== undefined) sub = `목표 ${Number(m.target_value).toLocaleString()}${m.unit ? " " + m.unit : ""}`;
+      else if (m.target_value !== null && m.target_value !== undefined) sub = `목표 ${Number(m.target_value).toLocaleString()}${unit ? " " + unit : ""}`;
       else if (periodTargetCount[m.id]) sub = "기간별 목표 설정됨";
       else { sub = "목표값 미설정"; subClass = "text-amber-600"; }
       return `<div class="mb-0.5 last:mb-0">
-        <div class="text-slate-700">${escapeHtml(m.metric_name)}</div>
+        <div class="text-slate-700">${escapeHtml(name)}</div>
         <div class="text-[11px] ${subClass}">${sub}</div>
       </div>`;
     }).join("");

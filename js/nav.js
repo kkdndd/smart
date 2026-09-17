@@ -11,6 +11,7 @@ const ICONS = {
   admin: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>',
   bu: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 0H7a1 1 0 00-1 1v3m6-4h5a1 1 0 011 1v3M4 11h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"/></svg>',
   company: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M5 21V7l7-4 7 4v14M9 9h2m2 0h2M9 13h2m2 0h2M9 17h6"/></svg>',
+  kpi: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19.5V5a1.5 1.5 0 011.5-1.5h9L20 9v10.5a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 19.5z"/><path stroke-linecap="round" stroke-linejoin="round" d="M14 3.5V9h5.5M8.5 16.5v-3m3.5 3v-5m3.5 5v-2"/></svg>',
   // 프로세스 맵: 단계가 이어지는 흐름도(노드 → 노드)
   process: '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><rect x="2.5" y="3.5" width="8" height="6" rx="1.8"/><rect x="13.5" y="14.5" width="8" height="6" rx="1.8"/><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6.5h3.5a3 3 0 013 3v5"/></svg>',
 };
@@ -38,6 +39,7 @@ function renderNav(profile, active) {
   }
   if (canManageBusinessUnits(profile)) {
     links.push({ href: "business-units.html", label: "사업부 관리", key: "bu" });
+    links.push({ href: "kpi.html", label: "KPI 기준정보", key: "kpi" });
   }
   if (isHoldcoEditor(profile)) {
     links.push({ href: "admin.html", label: "계정 관리", key: "admin" });

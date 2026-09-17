@@ -113,12 +113,80 @@ async function withdrawSubmission() {
   await load();
 }
 
+// 전년 실적 한 줄 요약 (비교할 데이터가 없으면 아무것도 그리지 않는다)
+function prevYearHtml(m, summary) {
+  const p = m.kpi_definition_id ? summary[m.kpi_definition_id] : null;
+  if (!p) return "";
+  const unit = p.unit || m.unit || "";
+  const parts = [];
+  if (p.target !== null && p.target !== undefined) parts.push(`목표 ${Number(p.target).toLocaleString()}${unit}`);
+  if (p.actual !== null && p.actual !== undefined) {
+    const actualText = typeof p.actual === "number" ? Number(p.actual).toLocaleString() + unit : p.actual;
+    parts.push(`실적 ${actualText}${p.period ? ` (${p.period})` : ""}`);
+  }
+  if (p.rate !== null && p.rate !== undefined) parts.push(`달성률 ${p.rate}%`);
+  if (!parts.length) return "";
+  return `<p class="text-[11px] mb-2 px-2 py-1 rounded inline-block" style="background:var(--surface-hover);color:var(--text-secondary)">
+    <b>${p.year}년</b> ${parts.join(" · ")}${p.sameBu ? "" : " <span class='text-slate-400'>(다른 사업부 기준)</span>"}
+  </p>`;
+}
+
+// 같은 KPI 기준정보를 쓰는 전년도 지표를 찾아 목표·실적을 요약한다.
+// 지표명이 아니라 기준정보 id로 잇기 때문에, 그 사이 지표명이 바뀌었어도 연결이 유지된다.
+async function loadPreviousYearSummary(metrics) {
+  const defIds = metrics.map(m => m.kpi_definition_id).filter(Boolean);
+  if (!defIds.length) return {};
+
+  const { data: prevGoals } = await sb.from("goals").select("id, business_unit_id")
+    .eq("year", GOAL.year - 1).eq("company_id", GOAL.company_id);
+  if (!prevGoals || !prevGoals.length) return {};
+  const buByGoal = {};
+  prevGoals.forEach(g => { buByGoal[g.id] = g.business_unit_id; });
+
+  const { data: prevMetrics } = await sb.from("goal_metrics").select("*")
+    .in("goal_id", prevGoals.map(g => g.id))
+    .in("kpi_definition_id", defIds);
+  if (!prevMetrics || !prevMetrics.length) return {};
+
+  // 같은 사업부의 지표를 우선 사용한다 (사업부가 다르면 비교 대상이 아님)
+  const picked = {};
+  prevMetrics.forEach(pm => {
+    const sameBu = buByGoal[pm.goal_id] === GOAL.business_unit_id;
+    const cur = picked[pm.kpi_definition_id];
+    if (!cur || (sameBu && !cur._sameBu)) picked[pm.kpi_definition_id] = Object.assign({ _sameBu: sameBu }, pm);
+  });
+
+  const prevIds = Object.values(picked).map(p => p.id);
+  const { data: prevProgress } = await sb.from("progress_entries").select("*").in("goal_metric_id", prevIds).order("period");
+  const { data: prevPeriodTargets } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", prevIds);
+
+  const summary = {};
+  Object.values(picked).forEach(pm => {
+    const entries = (prevProgress || []).filter(p => p.goal_metric_id === pm.id);
+    const last = entries[entries.length - 1];
+    const ptMap = {};
+    (prevPeriodTargets || []).forEach(pt => { if (pt.goal_metric_id === pm.id) ptMap[pt.period] = pt.target_value; });
+    const rate = last ? calcAchievementRate(pm, last.actual_value, last.milestone_achieved, ptMap[last.period]) : null;
+    summary[pm.kpi_definition_id] = {
+      year: GOAL.year - 1,
+      target: pm.target_value,
+      unit: pm.unit,
+      actual: last ? (last.milestone_achieved !== null ? (last.milestone_achieved ? "완료" : "미완료") : last.actual_value) : null,
+      period: last ? last.period : null,
+      rate,
+      sameBu: pm._sameBu
+    };
+  });
+  return summary;
+}
+
 async function loadMetrics() {
   const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", GOAL_ID);
   const root = document.getElementById("metrics-root");
   if (!metrics || metrics.length === 0) { root.innerHTML = `<p class="text-sm text-slate-400">등록된 지표가 없습니다.</p>`; return; }
 
   const metricIds = metrics.map(m => m.id);
+  const prevSummary = await loadPreviousYearSummary(metrics);
   const { data: progress } = await sb.from("progress_entries").select("*").in("goal_metric_id", metricIds).order("period", { ascending: true });
   const { data: periodTargets } = await sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds);
   const periodTargetsByKey = {};
@@ -161,6 +229,7 @@ async function loadMetrics() {
         <span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(rate)}">${rate===null?'실적없음':rate+'%'}</span>
       </div>
       <p class="text-xs text-slate-500 mb-2">${targetHint}</p>
+      ${prevYearHtml(m, prevSummary)}
       <div class="rounded border border-slate-100 divide-y divide-slate-100">${history || '<p class="text-xs text-slate-400 px-3 py-2">입력된 실적이 없습니다</p>'}</div>
     </div>`;
   }).join("");

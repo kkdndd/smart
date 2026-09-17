@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KPI 기준정보 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
+<script src="js/config.js"></script>
+</head>
+<body class="min-h-screen">
+<div id="nav-root"></div>
+<div class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <h1 class="text-lg font-bold text-slate-800">KPI 기준정보</h1>
+    <div id="company-filter" class="hidden items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg pl-3 pr-2 py-1">
+      <label for="company-select" class="text-xs font-semibold text-amber-700 whitespace-nowrap">회사</label>
+      <select id="company-select" class="border border-amber-300 rounded px-2 py-1 text-sm font-semibold text-amber-800 bg-white"></select>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <p class="text-xs text-slate-500 mb-2">
+      목표를 작성할 때 고르는 지표 목록입니다. 여기서 <b>이름을 고쳐도 과거 데이터와의 연결은 유지</b>되므로,
+      표기를 다듬어도 전년 대비 비교가 끊기지 않습니다.
+      같은 지표가 이름만 다르게 두 개 등록됐다면 <b>병합</b>으로 합치면 과거 실적까지 하나로 이어집니다.
+      더 이상 쓰지 않는 지표는 <b>숨김</b> 처리하면 새 목표 작성 목록에서만 빠집니다.
+    </p>
+    <div class="flex gap-2">
+      <input id="new-name" placeholder="새 지표명 (예: 온라인 매출액)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
+      <select id="new-type" class="border border-slate-300 rounded px-2 py-2 text-sm">
+        <option value="increasing">증가형</option>
+        <option value="decreasing">감소형</option>
+        <option value="milestone">마일스톤</option>
+        <option value="qualitative">진척도(%)</option>
+      </select>
+      <input id="new-unit" list="unit-options" placeholder="단위" class="w-24 border border-slate-300 rounded px-2 py-2 text-sm" />
+      <button id="add-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342] whitespace-nowrap">+ 등록</button>
+    </div>
+    <datalist id="unit-options">
+      <option value="건"></option><option value="명"></option><option value="개"></option><option value="%"></option>
+      <option value="점"></option><option value="억원"></option><option value="백만원"></option><option value="팀"></option>
+    </datalist>
+    <p id="add-msg" class="text-xs mt-2 hidden"></p>
+  </div>
+
+  <div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
+        <th class="py-2 px-3">지표명</th>
+        <th class="py-2 px-3 whitespace-nowrap">유형</th>
+        <th class="py-2 px-3 whitespace-nowrap">단위</th>
+        <th class="py-2 px-3 whitespace-nowrap">기본 기간</th>
+        <th class="py-2 px-3 whitespace-nowrap">사용 연도</th>
+        <th class="py-2 px-3 whitespace-nowrap">상태</th>
+        <th class="py-2 px-3"></th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, COMPANY_ID = null, DEFS = [], USAGE = {};
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  if (!canManageBusinessUnits(PROFILE)) {
+    document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return;
+  }
+  renderNav(PROFILE, "kpi");
+
+  if (isHoldcoEditor(PROFILE)) {
+    const { data: companies } = await sb.from("companies").select("id,name,is_holding").eq("is_active", true)
+      .order("is_holding", { ascending: false }).order("name");
+    const sel = document.getElementById("company-select");
+    sel.innerHTML = (companies || []).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+    COMPANY_ID = companies && companies[0] ? companies[0].id : null;
+    sel.addEventListener("change", () => { COMPANY_ID = sel.value; load(); });
+    const f = document.getElementById("company-filter");
+    f.classList.remove("hidden"); f.classList.add("flex");
+  } else {
+    COMPANY_ID = PROFILE.company_id;
+  }
+
+  document.getElementById("add-btn").addEventListener("click", addDefinition);
+  document.getElementById("new-name").addEventListener("keydown", e => { if (e.key === "Enter") addDefinition(); });
+  await load();
+})();
+
+function normalizeName(name) { return (name || "").replace(/\s+/g, "").toLowerCase(); }
+
+function showAddMsg(text, isError) {
+  const el = document.getElementById("add-msg");
+  el.textContent = text;
+  el.className = "text-xs mt-2 " + (isError ? "text-red-600" : "text-green-600");
+  el.classList.remove("hidden");
+}
+
+async function load() {
+  const { data, error } = await sb.from("kpi_definitions").select("*")
+    .eq("company_id", COMPANY_ID || "___none___").order("name");
+  if (error) { console.error(error); return; }
+  DEFS = data || [];
+
+  // 어떤 연도에 쓰였는지 보여주면 "쓰던 지표"와 "만들어만 둔 지표"를 구분할 수 있다
+  USAGE = {};
+  const ids = DEFS.map(d => d.id);
+  if (ids.length) {
+    const { data: used } = await sb.from("goal_metrics")
+      .select("kpi_definition_id, goals:goal_id(year)").in("kpi_definition_id", ids);
+    (used || []).forEach(u => {
+      if (!u.goals) return;
+      if (!USAGE[u.kpi_definition_id]) USAGE[u.kpi_definition_id] = new Set();
+      USAGE[u.kpi_definition_id].add(u.goals.year);
+    });
+  }
+
+  const typeOpts = (sel) => Object.entries(METRIC_TYPE_LABEL)
+    .map(([v, l]) => `<option value="${v}" ${sel === v ? "selected" : ""}>${l}</option>`).join("");
+
+  document.getElementById("rows").innerHTML = DEFS.map(d => {
+    const years = [...(USAGE[d.id] || [])].sort();
+    const others = DEFS.filter(x => x.id !== d.id);
+    return `<tr class="border-b border-slate-100 ${d.is_active ? "" : "bg-slate-50"}" data-id="${d.id}">
+      <td class="py-2 px-3"><input class="d-name border border-slate-300 rounded px-2 py-1 text-sm w-52 ${d.is_active?'':'text-slate-400'}" value="${escapeHtml(d.name)}" /></td>
+      <td class="py-2 px-3"><select class="d-type border border-slate-300 rounded px-1.5 py-1 text-xs">${typeOpts(d.metric_type)}</select></td>
+      <td class="py-2 px-3"><input class="d-unit border border-slate-300 rounded px-1.5 py-1 text-xs w-16" list="unit-options" value="${escapeHtml(d.unit || "")}" /></td>
+      <td class="py-2 px-3">
+        <select class="d-period border border-slate-300 rounded px-1.5 py-1 text-xs">
+          <option value="monthly" ${d.default_period_type === "monthly" ? "selected" : ""}>월별</option>
+          <option value="quarterly" ${d.default_period_type === "quarterly" ? "selected" : ""}>분기별</option>
+        </select>
+      </td>
+      <td class="py-2 px-3 text-xs text-slate-500 whitespace-nowrap">${years.length ? years.join(", ") : '<span class="text-slate-300">미사용</span>'}</td>
+      <td class="py-2 px-3">
+        <span class="badge ${d.is_active ? "bg-[#e7f5ec] text-[#2f9e5b]" : "bg-[#f0f0f2] text-[#a1a1a6]"}">${d.is_active ? "사용" : "숨김"}</span>
+      </td>
+      <td class="py-2 px-3 text-right whitespace-nowrap">
+        <button onclick="saveDefinition('${d.id}')" class="text-xs text-slate-700 underline mr-3">저장</button>
+        <button onclick="toggleActive('${d.id}')" class="text-xs ${d.is_active ? "text-amber-700" : "text-green-700"} underline mr-3">${d.is_active ? "숨김" : "사용"}</button>
+        ${others.length ? `
+          <select class="merge-target border border-slate-300 rounded px-1.5 py-1 text-xs mr-1">
+            <option value="">병합 대상</option>
+            ${others.map(o => `<option value="${o.id}">${escapeHtml(o.name)}(으)로</option>`).join("")}
+          </select>
+          <button onclick="mergeDefinition('${d.id}')" class="text-xs text-amber-700 underline mr-3">병합</button>` : ""}
+        ${years.length === 0 ? `<button onclick="deleteDefinition('${d.id}')" class="text-xs text-red-500 underline">삭제</button>`
+          : `<span class="text-xs text-slate-300" title="목표에 사용 중입니다. 숨김 처리하세요">삭제불가</span>`}
+      </td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">등록된 지표가 없습니다. 목표를 작성하면 자동으로 등록됩니다.</td></tr>`;
+}
+
+async function addDefinition() {
+  const nameEl = document.getElementById("new-name");
+  const name = nameEl.value.trim();
+  if (!name) { showAddMsg("지표명을 입력해주세요.", true); return; }
+
+  const norm = normalizeName(name);
+  const exact = DEFS.find(d => normalizeName(d.name) === norm);
+  if (exact) { showAddMsg(`이미 등록된 지표입니다: ${exact.name}`, true); return; }
+  const similar = DEFS.filter(d => { const n = normalizeName(d.name); return n.includes(norm) || norm.includes(n); });
+  if (similar.length && !confirm(`비슷한 지표가 이미 있습니다: ${similar.map(s => s.name).join(", ")}\n그래도 새로 등록할까요?`)) return;
+
+  const { error } = await sb.from("kpi_definitions").insert({
+    company_id: COMPANY_ID, name,
+    metric_type: document.getElementById("new-type").value,
+    unit: document.getElementById("new-unit").value.trim() || null,
+    created_by: PROFILE.id
+  });
+  if (error) { showAddMsg(error.code === "23505" ? "동일한 지표가 이미 있습니다." : "등록 실패: " + error.message, true); return; }
+  nameEl.value = ""; document.getElementById("new-unit").value = "";
+  showAddMsg(`'${name}' 지표를 등록했습니다.`, false);
+  await load();
+}
+
+async function saveDefinition(id) {
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const name = tr.querySelector(".d-name").value.trim();
+  if (!name) { alert("지표명을 입력해주세요."); return; }
+  if (DEFS.some(d => d.id !== id && normalizeName(d.name) === normalizeName(name))) {
+    alert("같은 이름의 지표가 이미 있습니다. 병합 기능을 사용해주세요."); return;
+  }
+  const { error } = await sb.from("kpi_definitions").update({
+    name,
+    metric_type: tr.querySelector(".d-type").value,
+    unit: tr.querySelector(".d-unit").value.trim() || null,
+    default_period_type: tr.querySelector(".d-period").value
+  }).eq("id", id);
+  if (error) { alert(error.code === "23505" ? "같은 이름의 지표가 이미 있습니다." : "저장 실패: " + error.message); return; }
+  await load();
+}
+
+async function toggleActive(id) {
+  const d = DEFS.find(x => x.id === id);
+  const next = !d.is_active;
+  if (!next && !confirm(`'${d.name}' 지표를 숨길까요?\n새 목표 작성 시 선택 목록에서만 빠지고, 이미 작성된 목표와 실적은 그대로 유지됩니다.`)) return;
+  const { error } = await sb.from("kpi_definitions").update({ is_active: next }).eq("id", id);
+  if (error) { alert("변경 실패: " + error.message); return; }
+  await load();
+}
+
+async function mergeDefinition(sourceId) {
+  const tr = document.querySelector(`tr[data-id="${sourceId}"]`);
+  const targetId = tr.querySelector(".merge-target").value;
+  if (!targetId) { alert("병합할 대상 지표를 선택해주세요."); return; }
+  const source = DEFS.find(d => d.id === sourceId), target = DEFS.find(d => d.id === targetId);
+  if (!confirm(`'${source.name}'을(를) '${target.name}'(으)로 합칩니다.\n'${source.name}'으로 작성된 과거 목표·실적이 모두 '${target.name}' 기준으로 이어집니다.\n이 작업은 되돌릴 수 없습니다. 진행할까요?`)) return;
+
+  const { error } = await sb.rpc("merge_kpi_definition", { p_source: sourceId, p_target: targetId });
+  if (error) { alert("병합 실패: " + error.message); return; }
+  await load();
+}
+
+async function deleteDefinition(id) {
+  const d = DEFS.find(x => x.id === id);
+  if (!confirm(`'${d.name}' 지표를 삭제할까요? 아직 어떤 목표에도 쓰이지 않아 안전하게 삭제됩니다.`)) return;
+  const { error } = await sb.from("kpi_definitions").delete().eq("id", id);
+  if (error) { alert("삭제 실패: " + error.message); return; }
+  await load();
+}
+</script>
+</body>
+</html>
