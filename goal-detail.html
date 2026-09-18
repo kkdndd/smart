@@ -344,7 +344,6 @@ function buildChartData(m, entries, periodTargetsByKey) {
   //  · 합산형: 입력값을 더해 나간다
   //  · 누적형: 입력값 자체가 이미 누적이므로 그대로 쓴다 (더하면 중복 집계가 된다)
   //  · 평균형: 그 시점까지의 평균을 본다
-  const acc = accumulationOf(m);
   const running = (arr, limitIdx) => {
     if (acc === "latest") {
       return arr.map((v, i) => (limitIdx !== undefined && i > limitIdx) ? null : v);
