@@ -6,6 +6,7 @@
 <title>목표 상세 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="js/design.css" />
 <script src="js/config.js"></script>
 </head>
@@ -230,9 +231,213 @@ async function loadMetrics() {
       </div>
       <p class="text-xs text-slate-500 mb-2">${targetHint}</p>
       ${prevYearHtml(m, prevSummary)}
-      <div class="rounded border border-slate-100 divide-y divide-slate-100">${history || '<p class="text-xs text-slate-400 px-3 py-2">입력된 실적이 없습니다</p>'}</div>
+      ${m.metric_type === "milestone" ? milestoneTimelineHtml(m, entriesAsc) : chartBlockHtml(m)}
+      <details class="mt-2">
+        <summary class="text-xs text-slate-500 cursor-pointer">기간별 입력 내역</summary>
+        <div class="rounded border border-slate-100 divide-y divide-slate-100 mt-1">${history || '<p class="text-xs text-slate-400 px-3 py-2">입력된 실적이 없습니다</p>'}</div>
+      </details>
     </div>`;
   }).join("");
+
+  // HTML을 붙인 뒤에 차트를 그린다 (canvas가 DOM에 있어야 하므로)
+  metrics.forEach(m => {
+    const entriesAsc = (progress||[]).filter(p => p.goal_metric_id === m.id);
+    CHART_DATA[m.id] = buildChartData(m, entriesAsc, periodTargetsByKey);
+    renderMetricChart(m.id, "cumulative");
+  });
+}
+
+// ---- KPI 달성 차트 ----
+// 목표·실적·달성률을 이중축으로 겹치면 축 스케일에 따라 해석이 달라지고, 달성률은 어차피 목표·실적에서 나온 값이라
+// 같은 정보를 두 번 그리게 된다. 그래서 축을 하나만 쓰는 두 가지 관점(누적/월별)을 토글로 제공한다.
+const CHART_DATA = {};
+const CHART_INSTANCES = {};
+
+// 마일스톤은 값이 아니라 완료 여부라 막대·선 차트가 의미가 없다. 기간별 완료 타임라인으로 보여준다.
+function milestoneTimelineHtml(m, entries) {
+  const periods = periodsForYear(GOAL.year, m.period_type);
+  const byPeriod = {};
+  entries.forEach(e => { byPeriod[e.period] = e.milestone_achieved; });
+  const done = periods.filter(p => byPeriod[p] === true).length;
+  return `<div class="rounded border border-slate-100 p-2 mb-2">
+    <div class="flex items-center justify-between mb-1.5">
+      <span class="text-[11px] text-slate-400">기간별 완료 현황</span>
+      <span class="text-[11px] text-slate-500">${done} / ${periods.length} 완료</span>
+    </div>
+    <div class="flex flex-wrap gap-1.5">
+      ${periods.map(p => {
+        const v = byPeriod[p];
+        const style = v === true ? "background:#e7f5ec;color:#2f9e5b;border-color:#2f9e5b"
+                    : v === false ? "background:#fbeae7;color:#c94a3c;border-color:#e6b5ad"
+                    : "background:transparent;color:#c7c7cc;border-color:#e5e5ea";
+        return `<span class="text-[10px] px-1.5 py-0.5 rounded border" style="${style}">${periodShortLabel(p)}</span>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+function chartBlockHtml(m) {
+  if (m.metric_type === "milestone") return ""; // 별도 타임라인으로 렌더링
+  return `<div class="rounded border border-slate-100 p-2 mb-2">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[11px] text-slate-400" id="chart-note-${m.id}"></span>
+      <div class="flex gap-1">
+        <button type="button" onclick="renderMetricChart('${m.id}','cumulative')" data-mode="cumulative" data-metric="${m.id}"
+          class="chart-tab text-[11px] px-2 py-0.5 rounded border border-slate-300">누적</button>
+        <button type="button" onclick="renderMetricChart('${m.id}','monthly')" data-mode="monthly" data-metric="${m.id}"
+          class="chart-tab text-[11px] px-2 py-0.5 rounded border border-slate-300">기간별</button>
+      </div>
+    </div>
+    <div style="height:180px; position:relative"><canvas id="chart-${m.id}"></canvas></div>
+  </div>`;
+}
+
+// 차트에 쓸 기간별 목표/실적을 정리한다
+function buildChartData(m, entries, periodTargetsByKey) {
+  const periods = periodsForYear(GOAL.year, m.period_type);
+  const actualByPeriod = {};
+  entries.forEach(e => {
+    if (m.metric_type === "qualitative" || m.metric_type === "increasing" || m.metric_type === "decreasing") {
+      if (e.actual_value !== null && e.actual_value !== undefined) actualByPeriod[e.period] = Number(e.actual_value);
+    }
+  });
+
+  const hasPeriodTargets = periods.some(p => periodTargetsByKey[m.id + "|" + p] !== undefined);
+  const annual = (m.target_value !== null && m.target_value !== undefined) ? Number(m.target_value) : null;
+
+  let targets, targetNote = "";
+  if (hasPeriodTargets) {
+    targets = periods.map(p => {
+      const v = periodTargetsByKey[m.id + "|" + p];
+      return (v === undefined || v === null) ? null : Number(v);
+    });
+    targetNote = "기간별 목표값 기준";
+  } else if (annual !== null) {
+    // 기간별 목표가 없으면 연간 목표를 균등 배분한 참고선을 쓴다 (실제 설정값이 아님을 명시)
+    const each = annual / periods.length;
+    targets = periods.map(() => each);
+    targetNote = "연간 목표 균등 배분(참고)";
+  } else {
+    targets = periods.map(() => null);
+    targetNote = "";
+  }
+
+  // 실적이 입력되지 않은 기간은 null로 두어 그래프에 찍지 않는다 (0으로 그리면 미달성으로 오해됨)
+  const actuals = periods.map(p => (p in actualByPeriod) ? actualByPeriod[p] : null);
+  const lastIdx = actuals.reduce((acc, v, i) => (v !== null ? i : acc), -1);
+
+  const cum = (arr, limitIdx) => {
+    let sum = 0;
+    return arr.map((v, i) => {
+      if (limitIdx !== undefined && i > limitIdx) return null;
+      sum += (v === null || v === undefined) ? 0 : v;
+      return Math.round(sum * 1000) / 1000;
+    });
+  };
+
+  return {
+    periods, targets, actuals, annual, targetNote, lastIdx,
+    cumTargets: targets.every(t => t === null) ? periods.map(() => null) : cum(targets),
+    cumActuals: lastIdx < 0 ? periods.map(() => null) : cum(actuals, lastIdx),
+    unit: m.unit || "",
+    metricType: m.metric_type,
+    hasAnyTarget: hasPeriodTargets || annual !== null
+  };
+}
+
+function periodShortLabel(period) {
+  const mm = period.match(/-(\d{2})$/);
+  if (mm) return `${parseInt(mm[1], 10)}월`;
+  const q = period.match(/-Q(\d)$/);
+  return q ? `${q[1]}Q` : period;
+}
+
+function renderMetricChart(metricId, mode) {
+  const d = CHART_DATA[metricId];
+  const canvas = document.getElementById("chart-" + metricId);
+  if (!d || !canvas || !window.Chart) return;
+
+  document.querySelectorAll(`.chart-tab[data-metric="${metricId}"]`).forEach(b => {
+    const on = b.dataset.mode === mode;
+    b.style.background = on ? "var(--accent-soft)" : "transparent";
+    b.style.color = on ? "var(--accent)" : "var(--text-secondary)";
+    b.style.fontWeight = on ? "600" : "400";
+  });
+
+  const noteEl = document.getElementById("chart-note-" + metricId);
+  if (noteEl) {
+    noteEl.textContent = !d.hasAnyTarget
+      ? "목표값을 입력하면 목표선이 표시됩니다"
+      : (mode === "cumulative" ? `누적 · ${d.targetNote}` : `기간별 · ${d.targetNote}`);
+  }
+
+  if (CHART_INSTANCES[metricId]) CHART_INSTANCES[metricId].destroy();
+
+  // 감소형은 실적이 목표보다 낮아야 좋은 지표라 색 기준을 반대로 잡는다
+  const good = "#2f9e5b", bad = "#c94a3c", targetColor = "#8e8e93";
+  const labels = d.periods.map(periodShortLabel);
+  const fmt = (v) => v === null ? "-" : Number(v).toLocaleString() + (d.unit ? " " + d.unit : "");
+
+  let config;
+  if (d.metricType === "qualitative") {
+    config = {
+      type: "line",
+      data: { labels, datasets: [{ label: "진척도(%)", data: d.actuals, borderColor: good, backgroundColor: good, tension: .3, spanGaps: false }] },
+      options: baseOptions(fmt, { suggestedMin: 0, suggestedMax: 100 })
+    };
+  } else if (mode === "cumulative") {
+    config = {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "누적 목표", data: d.cumTargets, borderColor: targetColor, borderDash: d.targetNote.includes("참고") ? [5, 4] : [], pointRadius: 0, tension: .2, spanGaps: true },
+          { label: "누적 실적", data: d.cumActuals, borderColor: good, backgroundColor: "rgba(47,158,91,.08)", fill: true, tension: .2, spanGaps: false }
+        ].concat(
+          // 기간별 목표의 합이 연간 목표와 다를 때만 연간 목표 기준선을 따로 그린다 (같으면 누적 목표선과 겹침)
+          (d.annual !== null && Math.abs((d.cumTargets[d.cumTargets.length - 1] ?? 0) - d.annual) > 0.001)
+            ? [{ label: `연간 목표 ${d.annual.toLocaleString()}`, data: d.periods.map(() => d.annual),
+                 borderColor: "#c98a1f", borderDash: [3, 3], borderWidth: 1, pointRadius: 0, fill: false }]
+            : []
+        )
+      },
+      options: baseOptions(fmt)
+    };
+  } else {
+    const barColors = d.actuals.map((v, i) => {
+      const t = d.targets[i];
+      if (v === null || t === null || t === undefined) return "#4c6fa5";
+      const ok = d.metricType === "decreasing" ? v <= t : v >= t;
+      return ok ? good : bad;
+    });
+    config = {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: "목표", data: d.targets, backgroundColor: "#d7dae0", borderRadius: 2 },
+          { label: "실적", data: d.actuals, backgroundColor: barColors, borderRadius: 2 }
+        ]
+      },
+      options: baseOptions(fmt)
+    };
+  }
+  CHART_INSTANCES[metricId] = new Chart(canvas.getContext("2d"), config);
+}
+
+function baseOptions(fmt, scaleExtra) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { display: true, labels: { boxWidth: 10, font: { size: 10 } } },
+      tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } }
+    },
+    scales: {
+      x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+      y: Object.assign({ beginAtZero: true, ticks: { font: { size: 10 } } }, scaleExtra || {})
+    }
+  };
 }
 
 async function loadReviews() {
