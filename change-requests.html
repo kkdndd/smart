@@ -58,6 +58,7 @@ const GOAL_ID = params.get("goal");
 let CURRENT_GOAL = null;
 let CURRENT_METRICS_BY_ID = {};
 let CURRENT_PERIOD_TARGETS_BY_METRIC = {};
+let CURRENT_PROGRESS_BY_METRIC = {}; // 지표별 기간별 실적 (변경 판단 근거로 함께 보여준다)
 
 const FIELD_DEFS = [
   { key: "strategy_name", label: "전략(목표)" },
@@ -68,10 +69,12 @@ const FIELD_DEFS = [
   { key: "timebound_text", label: "T · Time-bound" },
 ];
 
+// note가 붙은 항목은 KPI 기준정보(kpi_definitions)에서 관리하는 속성이다.
+// 여기서 바꾸면 이 목표에만 반영되고 기준정보와 달라져 연도별 비교가 어긋날 수 있어 경고를 띄운다.
 const METRIC_FIELD_DEFS = [
-  { key: "metric_name", label: "지표명", type: "text" },
-  { key: "metric_type", label: "지표 유형", type: "select", options: Object.entries(METRIC_TYPE_LABEL) },
-  { key: "unit", label: "단위", type: "text" },
+  { key: "metric_name", label: "지표명", type: "text", note: "기준정보 소속" },
+  { key: "metric_type", label: "지표 유형", type: "select", options: Object.entries(METRIC_TYPE_LABEL), note: "기준정보 소속" },
+  { key: "unit", label: "단위", type: "text", note: "기준정보 소속" },
   { key: "baseline_value", label: "기준값", type: "number" },
   { key: "target_value", label: "목표값", type: "number" },
   { key: "period_type", label: "기간 유형", type: "select", options: [["monthly","월별"],["quarterly","분기별"]] },
@@ -100,6 +103,16 @@ const METRIC_FIELD_DEFS = [
         });
       }
       CURRENT_PERIOD_TARGETS_BY_METRIC = periodTargetsByMetric;
+
+      // 목표값을 얼마로 바꿀지 판단하려면 지금까지의 실적이 같이 보여야 한다
+      if (metricIds.length) {
+        const { data: entries } = await sb.from("progress_entries")
+          .select("goal_metric_id, period, actual_value, milestone_achieved").in("goal_metric_id", metricIds);
+        (entries || []).forEach(e => {
+          if (!CURRENT_PROGRESS_BY_METRIC[e.goal_metric_id]) CURRENT_PROGRESS_BY_METRIC[e.goal_metric_id] = {};
+          CURRENT_PROGRESS_BY_METRIC[e.goal_metric_id][e.period] = e;
+        });
+      }
       renderMetricGrid(metrics, periodTargetsByMetric);
     }
   }
@@ -119,11 +132,34 @@ function periodTargetGridHtml(m, ptMap) {
   // 변경요청은 항상 특정 기존 목표에 대한 것이므로, 사이드바에서 보고 있는 연도가 아니라
   // 그 목표 본래의 연도를 기준으로 기간 목록을 만든다.
   const periods = periodsForYear(CURRENT_GOAL.year, m.period_type);
-  return periods.map(p => {
-    const current = ptMap && ptMap[p] !== undefined ? ptMap[p] : null;
+  const unit = m.unit ? ` ${m.unit}` : "";
+  const annual = (m.target_value !== null && m.target_value !== undefined) ? Number(m.target_value) : null;
+  const acc = accumulationOf(m);
+  const progress = CURRENT_PROGRESS_BY_METRIC[m.id] || {};
+
+  return periods.map((p, idx) => {
+    const set = ptMap && ptMap[p] !== undefined && ptMap[p] !== null;
+    // 기간별 목표가 없으면 연간 목표를 집계 방식에 맞게 나눈 값을 참고로 보여준다 (실제 설정값이 아님)
+    let currentHtml;
+    if (set) {
+      currentHtml = `<span class="font-medium text-slate-700">${Number(ptMap[p]).toLocaleString()}${unit}</span>`;
+    } else if (annual !== null) {
+      const ref = acc === "latest" ? annual * (idx + 1) / periods.length
+                : acc === "average" ? annual
+                : annual / periods.length;
+      currentHtml = `<span class="text-slate-400">미설정 · 연간기준 ${Math.round(ref * 100) / 100}${unit}</span>`;
+    } else {
+      currentHtml = `<span class="text-slate-400">미설정</span>`;
+    }
+
+    const entry = progress[p];
+    const actual = entry && entry.actual_value !== null && entry.actual_value !== undefined
+      ? `<p class="text-[10px] text-blue-600 mb-0.5">실적 ${Number(entry.actual_value).toLocaleString()}${unit}</p>` : "";
+
     return `<div class="border border-slate-200 rounded p-1.5">
       <p class="text-[10px] text-slate-400 mb-0.5">${periodLabel(p)}</p>
-      <p class="text-[10px] rounded px-1 py-0.5 mb-0.5" style="background:var(--surface-hover);color:var(--text-secondary)">${current ?? '-'}</p>
+      <p class="text-[10px] rounded px-1 py-0.5 mb-0.5" style="background:var(--surface-hover)">${currentHtml}</p>
+      ${actual}
       <input type="number" step="any" class="mp-input w-full border border-slate-300 rounded px-1 py-0.5 text-xs" data-period="${p}" placeholder="변경 후" disabled />
     </div>`;
   }).join("");
@@ -145,6 +181,40 @@ function metricInputHtml(f, m) {
   return `<input type="${type}" step="any" class="mf-input w-full border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="변경 후 값 입력" disabled />`;
 }
 
+// 지표의 현재 상태를 한 줄로 요약한다. 목표값을 얼마로 바꿀지 판단하려면
+// 지금 목표가 얼마인지, 집계 방식이 뭔지, 실적이 어디까지 왔는지가 같이 보여야 한다.
+function metricSummaryHtml(m) {
+  const unit = m.unit ? ` ${m.unit}` : "";
+  const isNumeric = (m.metric_type === "increasing" || m.metric_type === "decreasing");
+  const progress = CURRENT_PROGRESS_BY_METRIC[m.id] || {};
+  const entriesAsc = periodsForYear(CURRENT_GOAL.year, m.period_type).map(p => progress[p]).filter(Boolean);
+
+  const parts = [`${METRIC_TYPE_LABEL[m.metric_type]}`];
+  if (isNumeric) parts.push(ACCUMULATION_LABEL[accumulationOf(m)]);
+  parts.push(m.period_type === "quarterly" ? "분기별" : "월별");
+
+  const targets = [];
+  if (isNumeric) {
+    targets.push(m.baseline_value !== null && m.baseline_value !== undefined
+      ? `기준값 ${Number(m.baseline_value).toLocaleString()}${unit}` : "기준값 미설정");
+    targets.push(m.target_value !== null && m.target_value !== undefined
+      ? `연간 목표 ${Number(m.target_value).toLocaleString()}${unit}` : "연간 목표 미설정");
+  }
+
+  const actual = isNumeric ? annualActual(m, entriesAsc) : null;
+  const rate = annualAchievementRate(m, entriesAsc, []);
+  const progressText = entriesAsc.length
+    ? `현재 실적 ${actual !== null ? Number(actual).toLocaleString() + unit : "-"}${rate !== null ? ` · 달성률 ${rate}%` : ""} (${entriesAsc.length}개 기간 입력됨)`
+    : "아직 입력된 실적이 없습니다";
+
+  return `<div class="rounded p-2 mb-2 text-[11px]" style="background:var(--surface-hover);color:var(--text-secondary)">
+    <p>${escapeHtml(parts.join(" · "))}</p>
+    ${targets.length ? `<p class="mt-0.5">${escapeHtml(targets.join(" → "))}</p>` : ""}
+    <p class="mt-0.5 ${entriesAsc.length ? "text-blue-600" : "text-slate-400"}">${escapeHtml(progressText)}</p>
+    ${entriesAsc.length ? `<p class="mt-0.5 text-amber-600">목표값을 바꾸면 이미 입력된 실적의 달성률이 모두 다시 계산됩니다.</p>` : ""}
+  </div>`;
+}
+
 function renderMetricGrid(metrics, periodTargetsByMetric) {
   const section = document.getElementById("metric-section");
   const root = document.getElementById("metric-grid");
@@ -155,7 +225,8 @@ function renderMetricGrid(metrics, periodTargetsByMetric) {
     const ptMap = (periodTargetsByMetric && periodTargetsByMetric[m.id]) || {};
     return `
     <div class="border border-slate-200 rounded p-3" data-metric-id="${m.id}">
-      <p class="text-sm font-medium text-slate-800 mb-2">핵심지표: ${escapeHtml(m.metric_name)}</p>
+      <p class="text-sm font-medium text-slate-800 mb-1">핵심지표: ${escapeHtml(m.metric_name)}</p>
+      ${metricSummaryHtml(m)}
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
         ${METRIC_FIELD_DEFS.map(f => `
           <div data-field-wrap="${f.key}">
@@ -165,6 +236,7 @@ function renderMetricGrid(metrics, periodTargetsByMetric) {
             </label>
             <p class="text-xs rounded p-2 mb-1" style="background:var(--surface-hover);color:var(--text-secondary)">${metricCurrentDisplay(m, f.key)}</p>
             ${metricInputHtml(f, m)}
+            ${f.note ? `<p class="text-[10px] text-amber-600 mt-0.5">이 항목은 KPI 기준정보에서 관리합니다. 여기서 바꾸면 이 목표에만 적용되어 다른 연도와 표기가 달라질 수 있습니다.</p>` : ""}
           </div>
         `).join("")}
       </div>
