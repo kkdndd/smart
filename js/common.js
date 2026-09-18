@@ -79,6 +79,20 @@ const ROLE_LABEL = {
   holdco_exec: "지주사 경영진(조회)"
 };
 
+// 집계 방식 — 같은 지표를 어떤 사람은 당월 발생분으로, 어떤 사람은 누적값으로 넣으면 달성률이 틀어진다.
+// 지표마다 입력 방법과 연간 실적 산출 규칙을 고정한다.
+const ACCUMULATION_LABEL = {
+  sum: "합산형 (당월 실적 입력)",
+  latest: "누적형 (누적값 입력)",
+  average: "평균형 (기간 평균 평가)"
+};
+const ACCUMULATION_SHORT = { sum: "합산", latest: "누적", average: "평균" };
+const ACCUMULATION_INPUT_HINT = {
+  sum: "이 기간에 발생한 실적만 입력하세요 (연간 실적 = 합계)",
+  latest: "연초부터 누적된 값을 입력하세요 (연간 실적 = 마지막 값)",
+  average: "이 기간의 값을 입력하세요 (연간 실적 = 기간 평균)"
+};
+
 const METRIC_TYPE_LABEL = {
   increasing: "증가형 (정량)",
   decreasing: "감소형 · 원가율 등 (정량)",
@@ -213,6 +227,73 @@ function calcAchievementRate(metric, latestActual, milestoneAchieved, periodTarg
     return Math.round(rate * 10) / 10;
   }
   return null;
+}
+
+// ---- 집계 방식에 따른 연간 실적/목표 산출 ----
+function accumulationOf(metric) {
+  return (metric && metric.accumulation) || "sum";
+}
+
+function aggregateValues(values, accumulation) {
+  const nums = values.filter(v => v !== null && v !== undefined && v !== "").map(Number).filter(v => !isNaN(v));
+  if (!nums.length) return null;
+  if (accumulation === "latest") return nums[nums.length - 1];
+  const sum = nums.reduce((a, b) => a + b, 0);
+  const v = (accumulation === "average") ? sum / nums.length : sum;
+  return Math.round(v * 1000) / 1000;
+}
+
+// 연간 실적. entries는 기간 오름차순이어야 한다.
+function annualActual(metric, entriesAsc) {
+  return aggregateValues((entriesAsc || []).map(e => e.actual_value), accumulationOf(metric));
+}
+
+// 연간 목표. 연간 목표값이 있으면 그것을, 없으면 기간별 목표값을 같은 방식으로 묶는다.
+function annualTarget(metric, periodTargetValues) {
+  if (metric.target_value !== null && metric.target_value !== undefined) return Number(metric.target_value);
+  return aggregateValues(periodTargetValues || [], accumulationOf(metric));
+}
+
+// 연간 목표 대비 달성률 (지표 카드·대시보드의 대표 숫자)
+function annualAchievementRate(metric, entriesAsc, periodTargetValues) {
+  if (metric.metric_type === "milestone") {
+    const done = (entriesAsc || []).filter(e => e.milestone_achieved === true).length;
+    const total = (entriesAsc || []).filter(e => e.milestone_achieved !== null && e.milestone_achieved !== undefined).length;
+    return total ? Math.round((done / total) * 1000) / 10 : null;
+  }
+  if (metric.metric_type === "qualitative") {
+    // 진척도는 마지막에 보고된 값이 곧 현재 수준
+    return aggregateValues((entriesAsc || []).map(e => e.actual_value), "latest");
+  }
+  const actual = annualActual(metric, entriesAsc);
+  const target = annualTarget(metric, periodTargetValues);
+  if (actual === null || target === null || isNaN(target) || target === 0) return null;
+  if (metric.metric_type === "decreasing") {
+    const baseline = Number(metric.baseline_value);
+    if (isNaN(baseline) || baseline === target) return null;
+    return Math.round(((baseline - actual) / (baseline - target)) * 1000) / 10;
+  }
+  return Math.round((actual / target) * 1000) / 10;
+}
+
+// 연중에는 합산형 지표가 항상 미달로 보이므로, 경과 기간 비율을 함께 본다 (2026-07이면 7/12 = 58%)
+function elapsedRatio(year, periodType, now) {
+  now = now || new Date();
+  if (now.getFullYear() > year) return 1;
+  if (now.getFullYear() < year) return 0;
+  const total = periodType === "quarterly" ? 4 : 12;
+  const done = periodType === "quarterly" ? Math.floor(now.getMonth() / 3) + 1 : now.getMonth() + 1;
+  return Math.min(1, done / total);
+}
+
+// 합산형은 연말 기준 달성률과 별개로 "지금 페이스가 정상인지"를 봐야 한다
+function paceText(metric, rate, year, now) {
+  if (rate === null || accumulationOf(metric) !== "sum") return "";
+  const expected = Math.round(elapsedRatio(year, metric.period_type, now) * 100);
+  if (expected === 0 || expected >= 100) return "";
+  const diff = Math.round(rate - expected);
+  if (Math.abs(diff) < 5) return `기간 경과 ${expected}% · 정상 페이스`;
+  return `기간 경과 ${expected}% · ${diff > 0 ? "+" : ""}${diff}%p`;
 }
 
 function rateColorClass(rate) {

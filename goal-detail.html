@@ -199,9 +199,11 @@ async function loadMetrics() {
 
   root.innerHTML = metrics.map(m => {
     const entriesAsc = (progress||[]).filter(p => p.goal_metric_id === m.id);
-    const latest = entriesAsc[entriesAsc.length - 1];
-    const latestTarget = latest ? periodTargetsByKey[m.id + "|" + latest.period] : undefined;
-    const rate = latest ? calcAchievementRate(m, latest.actual_value, latest.milestone_achieved, latestTarget) : null;
+    // 달성률은 집계 방식(합산/누적/평균)에 맞춰 연간 실적을 산출한 뒤 계산한다
+    const periodTargetValues = periodsForYear(GOAL.year, m.period_type)
+      .map(p => periodTargetsByKey[m.id + "|" + p]).filter(v => v !== undefined && v !== null);
+    const rate = annualAchievementRate(m, entriesAsc, periodTargetValues);
+    const pace = paceText(m, rate, GOAL.year);
     const isNumeric = (m.metric_type === 'increasing' || m.metric_type === 'decreasing');
     const history = entriesAsc.map(p => {
       const effTarget = periodTargetsByKey[m.id + "|" + p.period] ?? m.target_value;
@@ -226,8 +228,11 @@ async function loadMetrics() {
     }
     return `<div class="border border-slate-200 rounded p-3">
       <div class="flex items-center justify-between mb-1">
-        <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${METRIC_TYPE_LABEL[m.metric_type]} · ${m.period_type==='monthly'?'월별':'분기별'})</span></span>
-        <span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(rate)}">${rate===null?'실적없음':rate+'%'}</span>
+        <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${METRIC_TYPE_LABEL[m.metric_type]} · ${m.period_type==='monthly'?'월별':'분기별'} · ${ACCUMULATION_SHORT[accumulationOf(m)]})</span></span>
+        <span class="text-right">
+          <span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(rate)}">${rate===null?'실적없음':rate+'%'}</span>
+          ${pace ? `<span class="block text-[10px] text-slate-400 mt-0.5">${pace}</span>` : ''}
+        </span>
       </div>
       <p class="text-xs text-slate-500 mb-2">${targetHint}</p>
       ${prevYearHtml(m, prevSummary)}
@@ -294,6 +299,7 @@ function chartBlockHtml(m) {
 
 // 차트에 쓸 기간별 목표/실적을 정리한다
 function buildChartData(m, entries, periodTargetsByKey) {
+  const acc = accumulationOf(m);
   const periods = periodsForYear(GOAL.year, m.period_type);
   const actualByPeriod = {};
   entries.forEach(e => {
@@ -313,10 +319,18 @@ function buildChartData(m, entries, periodTargetsByKey) {
     });
     targetNote = "기간별 목표값 기준";
   } else if (annual !== null) {
-    // 기간별 목표가 없으면 연간 목표를 균등 배분한 참고선을 쓴다 (실제 설정값이 아님을 명시)
-    const each = annual / periods.length;
-    targets = periods.map(() => each);
-    targetNote = "연간 목표 균등 배분(참고)";
+    // 기간별 목표가 없으면 연간 목표로 참고선을 만든다 (실제 설정값이 아님을 명시)
+    // 집계 방식마다 "그 시점의 목표"가 다르다: 합산형은 균등 배분, 누적형은 균등 진행, 평균형은 같은 수준 유지
+    if (acc === "latest") {
+      targets = periods.map((_, i) => Math.round((annual * (i + 1) / periods.length) * 100) / 100);
+      targetNote = "연간 목표까지 균등 진행(참고)";
+    } else if (acc === "average") {
+      targets = periods.map(() => annual);
+      targetNote = "연간 목표 수준 유지(참고)";
+    } else {
+      targets = periods.map(() => Math.round((annual / periods.length) * 100) / 100);
+      targetNote = "연간 목표 균등 배분(참고)";
+    }
   } else {
     targets = periods.map(() => null);
     targetNote = "";
@@ -326,19 +340,29 @@ function buildChartData(m, entries, periodTargetsByKey) {
   const actuals = periods.map(p => (p in actualByPeriod) ? actualByPeriod[p] : null);
   const lastIdx = actuals.reduce((acc, v, i) => (v !== null ? i : acc), -1);
 
-  const cum = (arr, limitIdx) => {
-    let sum = 0;
+  // 집계 방식에 따라 "누적" 관점의 값이 달라진다.
+  //  · 합산형: 입력값을 더해 나간다
+  //  · 누적형: 입력값 자체가 이미 누적이므로 그대로 쓴다 (더하면 중복 집계가 된다)
+  //  · 평균형: 그 시점까지의 평균을 본다
+  const acc = accumulationOf(m);
+  const running = (arr, limitIdx) => {
+    if (acc === "latest") {
+      return arr.map((v, i) => (limitIdx !== undefined && i > limitIdx) ? null : v);
+    }
+    let sum = 0, count = 0;
     return arr.map((v, i) => {
       if (limitIdx !== undefined && i > limitIdx) return null;
-      sum += (v === null || v === undefined) ? 0 : v;
+      if (v !== null && v !== undefined) { sum += v; count++; }
+      if (acc === "average") return count ? Math.round((sum / count) * 1000) / 1000 : null;
       return Math.round(sum * 1000) / 1000;
     });
   };
 
   return {
     periods, targets, actuals, annual, targetNote, lastIdx,
-    cumTargets: targets.every(t => t === null) ? periods.map(() => null) : cum(targets),
-    cumActuals: lastIdx < 0 ? periods.map(() => null) : cum(actuals, lastIdx),
+    accumulation: acc,
+    cumTargets: targets.every(t => t === null) ? periods.map(() => null) : running(targets),
+    cumActuals: lastIdx < 0 ? periods.map(() => null) : running(actuals, lastIdx),
     unit: m.unit || "",
     metricType: m.metric_type,
     hasAnyTarget: hasPeriodTargets || annual !== null
@@ -350,6 +374,13 @@ function periodShortLabel(period) {
   if (mm) return `${parseInt(mm[1], 10)}월`;
   const q = period.match(/-Q(\d)$/);
   return q ? `${q[1]}Q` : period;
+}
+
+// 집계 방식에 따라 "누적" 관점의 이름이 달라진다
+function runningLabel(acc, base) {
+  if (acc === "latest") return base;            // 입력값 자체가 누적이라 그대로가 추이
+  if (acc === "average") return "평균 " + base;
+  return "누적 " + base;
 }
 
 function renderMetricChart(metricId, mode) {
@@ -391,8 +422,8 @@ function renderMetricChart(metricId, mode) {
       data: {
         labels,
         datasets: [
-          { label: "누적 목표", data: d.cumTargets, borderColor: targetColor, borderDash: d.targetNote.includes("참고") ? [5, 4] : [], pointRadius: 0, tension: .2, spanGaps: true },
-          { label: "누적 실적", data: d.cumActuals, borderColor: good, backgroundColor: "rgba(47,158,91,.08)", fill: true, tension: .2, spanGaps: false }
+          { label: runningLabel(d.accumulation, "목표"), data: d.cumTargets, borderColor: targetColor, borderDash: d.targetNote.includes("참고") ? [5, 4] : [], pointRadius: 0, tension: .2, spanGaps: true },
+          { label: runningLabel(d.accumulation, "실적"), data: d.cumActuals, borderColor: good, backgroundColor: "rgba(47,158,91,.08)", fill: true, tension: .2, spanGaps: false }
         ].concat(
           // 기간별 목표의 합이 연간 목표와 다를 때만 연간 목표 기준선을 따로 그린다 (같으면 누적 목표선과 겹침)
           (d.annual !== null && Math.abs((d.cumTargets[d.cumTargets.length - 1] ?? 0) - d.annual) > 0.001)

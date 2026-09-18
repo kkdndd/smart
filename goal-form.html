@@ -101,7 +101,7 @@
 
 <template id="metric-row-tpl">
   <div class="metric-row border border-slate-200 rounded p-3 space-y-2">
-    <div class="grid grid-cols-1 sm:grid-cols-6 gap-2">
+    <div class="grid grid-cols-1 sm:grid-cols-7 gap-2">
       <div class="sm:col-span-2 relative">
         <div class="flex">
           <input class="m-name flex-1 min-w-0 border border-slate-300 rounded-l px-2 py-1.5 text-sm" autocomplete="off" placeholder="지표명 입력 (초성 검색 가능)" />
@@ -127,7 +127,12 @@
         <option value="monthly">월별 입력</option>
         <option value="quarterly">분기별 입력</option>
       </select>
-      <button type="button" class="m-remove text-xs text-red-500 underline justify-self-end sm:col-start-6">삭제</button>
+      <select class="m-accum border border-slate-300 rounded px-2 py-1.5 text-sm">
+        <option value="sum">합산형 (당월 실적)</option>
+        <option value="latest">누적형 (누적값)</option>
+        <option value="average">평균형 (기간 평균)</option>
+      </select>
+      <button type="button" class="m-remove text-xs text-red-500 underline justify-self-end">삭제</button>
     </div>
     <p class="m-kpi-status text-[11px]"></p>
     <p class="m-hint text-xs text-slate-400"></p>
@@ -314,7 +319,7 @@ function kpiMetaText(def) {
 
 async function loadKpiDefinitions() {
   const { data } = await sb.from("kpi_definitions")
-    .select("id,name,metric_type,unit,default_period_type,is_active")
+    .select("id,name,metric_type,unit,default_period_type,accumulation,is_active")
     .eq("company_id", GOAL_COMPANY_ID || "___none___")
     .eq("is_active", true)
     .order("name");
@@ -532,6 +537,7 @@ function syncKpiLink(row, opts) {
     if (isNewLink && !(opts && opts.skipAutofill)) {
       row.querySelector(".m-type").value = def.metric_type;
       row.querySelector(".m-period").value = def.default_period_type;
+      row.querySelector(".m-accum").value = def.accumulation || "sum";
       if (def.unit) row.querySelector(".m-unit").value = def.unit;
       row.dataset.editAttrs = "";
       syncMetricRowType(row);
@@ -573,6 +579,7 @@ function applyInheritedAttrs(row, def) {
   const editBtn = inherited.querySelector(".m-edit-attrs");
   const typeEl = row.querySelector(".m-type");
   const unitEl = row.querySelector(".m-unit");
+  const accumEl = row.querySelector(".m-accum");
   const editing = row.dataset.editAttrs === "1";
   const isNonNumeric = (typeEl.value === "milestone" || typeEl.value === "qualitative");
 
@@ -581,18 +588,22 @@ function applyInheritedAttrs(row, def) {
     inherited.classList.add("hidden");
     inherited.classList.remove("flex");
     typeEl.classList.remove("hidden");
+    accumEl.classList.toggle("hidden", isNonNumeric);
     unitEl.classList.toggle("hidden", isNonNumeric);
     return;
   }
 
   typeEl.classList.add("hidden");
   unitEl.classList.add("hidden");
+  accumEl.classList.add("hidden");
   inherited.classList.remove("hidden");
   inherited.classList.add("flex");
 
   const typeLabel = METRIC_TYPE_LABEL[def.metric_type].replace(/\s*\(.*\)/, "");
+  const accLabel = isNonNumeric ? "" : ` · ${ACCUMULATION_SHORT[def.accumulation || "sum"]}`;
   const unitLabel = def.unit ? ` · ${def.unit}` : "";
-  badge.textContent = typeLabel + unitLabel;
+  badge.textContent = typeLabel + accLabel + unitLabel;
+  badge.title = ACCUMULATION_INPUT_HINT[def.accumulation || "sum"];
 
   if (def.unit) {
     editBtn.textContent = canEditKpiAttrs() ? "속성 수정" : "";
@@ -616,7 +627,8 @@ function syncMetricRowType(row) {
   const type = row.querySelector(".m-type").value;
   const isNonNumeric = (type === "milestone" || type === "qualitative");
   row.querySelector(".m-numeric-fields").classList.toggle("hidden", isNonNumeric);
-  row.querySelector(".m-hint").textContent = METRIC_TYPE_HINT[type] || "";
+  const accHint = ACCUMULATION_INPUT_HINT[row.querySelector(".m-accum").value] || "";
+  row.querySelector(".m-hint").textContent = (METRIC_TYPE_HINT[type] || "") + (accHint ? ` · ${accHint}` : "");
   row.querySelector(".m-baseline-hint").classList.toggle("hidden", type !== "decreasing");
   // 단위 입력칸 노출 여부는 기준정보 연결 상태까지 함께 따져야 하므로 한곳에서 처리한다
   applyInheritedAttrs(row, findKpiByName(row.querySelector(".m-name").value));
@@ -626,22 +638,40 @@ function periodInputs(row) {
   return [...row.querySelectorAll(".m-period-target-input")];
 }
 
-// 기간별 목표값 합계를 실시간으로 보여주고, 연간 목표값과 어긋나면 알려준다
+// 기간별 목표값을 집계 방식대로 묶어 연간 목표와 맞는지 실시간으로 알려준다.
+// 합산형은 합계, 누적형은 마지막 기간 값, 평균형은 평균이 연간 목표와 같아야 한다.
 function updatePeriodSum(row) {
   const el = row.querySelector(".m-period-sum");
-  const values = periodInputs(row).map(i => i.value).filter(v => v !== "");
+  const acc = row.querySelector(".m-accum").value;
+  const inputs = periodInputs(row);
+  const values = inputs.map(i => i.value).filter(v => v !== "");
   if (!values.length) {
     el.textContent = "입력된 기간 없음";
     el.className = "m-period-sum text-[11px] ml-auto text-slate-400";
     return;
   }
-  const sum = values.reduce((a, v) => a + Number(v), 0);
+
+  const nums = values.map(Number);
+  let rolled, rolledLabel;
+  if (acc === "latest") {
+    const filled = inputs.filter(i => i.value !== "");
+    rolled = Number(filled[filled.length - 1].value);
+    rolledLabel = "최종 기간 목표";
+  } else if (acc === "average") {
+    rolled = Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 1000) / 1000;
+    rolledLabel = "평균";
+  } else {
+    rolled = Math.round(nums.reduce((a, b) => a + b, 0) * 1000) / 1000;
+    rolledLabel = "합계";
+  }
+
   const annualUsed = row.querySelector(".m-use-annual").checked;
-  const annual = Number(row.querySelector(".m-target").value);
-  let text = `${values.length}개 기간 입력 · 합계 ${sum.toLocaleString()}`;
+  const annualRaw = row.querySelector(".m-target").value;
+  const annual = Number(annualRaw);
+  let text = `${values.length}개 기간 입력 · ${rolledLabel} ${rolled.toLocaleString()}`;
   let cls = "text-slate-500";
-  if (annualUsed && row.querySelector(".m-target").value !== "" && !isNaN(annual)) {
-    const diff = Math.round((sum - annual) * 1000) / 1000;
+  if (annualUsed && annualRaw !== "" && !isNaN(annual)) {
+    const diff = Math.round((rolled - annual) * 1000) / 1000;
     if (diff !== 0) {
       text += ` (연간 목표 ${annual.toLocaleString()} 대비 ${diff > 0 ? "+" : ""}${diff.toLocaleString()})`;
       cls = "text-amber-600";
@@ -706,6 +736,7 @@ function addMetricRow(m, periodTargetsMap) {
     row.querySelector(".m-baseline").value = m.baseline_value ?? "";
     row.querySelector(".m-target").value = m.target_value ?? "";
     row.querySelector(".m-period").value = m.period_type || "monthly";
+    row.querySelector(".m-accum").value = m.accumulation || "sum";
     row.querySelector(".m-use-annual").checked = m.target_value !== null && m.target_value !== undefined;
     row.querySelector(".m-use-period").checked = !!(periodTargetsMap && Object.keys(periodTargetsMap).length);
   } else {
@@ -714,6 +745,7 @@ function addMetricRow(m, periodTargetsMap) {
     row.querySelector(".m-use-annual").checked = true;
     if (prev) {
       row.querySelector(".m-period").value = prev.querySelector(".m-period").value;
+      row.querySelector(".m-accum").value = prev.querySelector(".m-accum").value;
       row.querySelector(".m-unit").value = prev.querySelector(".m-unit").value;
     }
   }
@@ -748,6 +780,7 @@ function addMetricRow(m, periodTargetsMap) {
   row.querySelector(".m-unit").addEventListener("input", () => { updateAnnualFormat(row); });
   row.querySelector(".m-target").addEventListener("input", () => { updateAnnualFormat(row); updatePeriodSum(row); });
   row.querySelector(".m-period").addEventListener("change", () => changePeriodType(row));
+  row.querySelector(".m-accum").addEventListener("change", () => { syncMetricRowType(row); updatePeriodSum(row); });
   row.querySelector(".m-use-annual").addEventListener("change", () => syncTargetModeVisibility(row));
   row.querySelector(".m-use-period").addEventListener("change", () => syncTargetModeVisibility(row));
   row.querySelector(".m-fill-even").addEventListener("click", () => fillPeriodsEvenly(row));
@@ -795,19 +828,29 @@ function changePeriodType(row) {
   updatePeriodSum(row);
 }
 
-// 연간 목표값을 기간 수로 나눠 채운다 (마지막 칸에서 반올림 오차를 보정)
+// 연간 목표값을 기간별로 펼친다. 집계 방식마다 "그 기간의 목표"가 다르다.
+//  · 합산형: 연간 ÷ 기간수 (마지막 칸에서 반올림 오차 보정)
+//  · 누적형: 연간까지 균등하게 올라가는 누적값 (100 → 200 → 300 …)
+//  · 평균형: 모든 기간이 같은 수준
 function fillPeriodsEvenly(row) {
   const annual = Number(row.querySelector(".m-target").value);
   if (row.querySelector(".m-target").value === "" || isNaN(annual)) {
     alert("먼저 '연간(최종) 목표값'을 입력해주세요.");
     return;
   }
+  const acc = row.querySelector(".m-accum").value;
   const inputs = periodInputs(row);
-  const each = Math.round((annual / inputs.length) * 100) / 100;
+  const n = inputs.length;
+
   inputs.forEach((inp, idx) => {
-    inp.value = idx === inputs.length - 1
-      ? Math.round((annual - each * (inputs.length - 1)) * 100) / 100
-      : each;
+    if (acc === "latest") {
+      inp.value = idx === n - 1 ? annual : Math.round((annual * (idx + 1) / n) * 100) / 100;
+    } else if (acc === "average") {
+      inp.value = annual;
+    } else {
+      const each = Math.round((annual / n) * 100) / 100;
+      inp.value = idx === n - 1 ? Math.round((annual - each * (n - 1)) * 100) / 100 : each;
+    }
   });
   updatePeriodSum(row);
 }
@@ -907,7 +950,8 @@ function collectMetrics() {
         unit: isNumeric ? (row.querySelector(".m-unit").value.trim() || null) : null,
         baseline_value: (isNumeric && baselineRaw !== "") ? Number(baselineRaw) : null,
         target_value: (isNumeric && useAnnual && targetRaw !== "") ? Number(targetRaw) : null,
-        period_type: row.querySelector(".m-period").value
+        period_type: row.querySelector(".m-period").value,
+        accumulation: row.querySelector(".m-accum").value
       },
       periodTargets: (isNumeric && usePeriod) ? periodTargets : []
     });
@@ -984,8 +1028,9 @@ async function saveGoal(mode) {
       metric_type: m.payload.metric_type,
       unit: m.payload.unit,
       default_period_type: m.payload.period_type,
+      accumulation: m.payload.accumulation,
       created_by: PROFILE.id
-    }).select("id,name,metric_type,unit,default_period_type").single();
+    }).select("id,name,metric_type,unit,default_period_type,accumulation").single();
     if (defErr) {
       showError(`'${m.payload.metric_name}' 지표를 기준정보에 등록하지 못했습니다: ` + defErr.message, m.rowEl);
       return;
@@ -1005,8 +1050,13 @@ async function saveGoal(mode) {
       if (!error) def.unit = m.payload.unit;
     } else if (canEditKpiAttrs()) {
       const { error } = await sb.from("kpi_definitions")
-        .update({ metric_type: m.payload.metric_type, unit: m.payload.unit }).eq("id", m.kpiDefId);
-      if (!error) { def.metric_type = m.payload.metric_type; def.unit = m.payload.unit; }
+        .update({ metric_type: m.payload.metric_type, unit: m.payload.unit, accumulation: m.payload.accumulation })
+        .eq("id", m.kpiDefId);
+      if (!error) {
+        def.metric_type = m.payload.metric_type;
+        def.unit = m.payload.unit;
+        def.accumulation = m.payload.accumulation;
+      }
     }
   }
 

@@ -51,6 +51,7 @@
       <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
         <th class="py-2 px-3">지표명</th>
         <th class="py-2 px-3 whitespace-nowrap">유형</th>
+        <th class="py-2 px-3 whitespace-nowrap" title="실적을 어떻게 입력하고 연간 실적을 어떻게 산출할지">집계</th>
         <th class="py-2 px-3 whitespace-nowrap">단위</th>
         <th class="py-2 px-3 whitespace-nowrap">기본 기간</th>
         <th class="py-2 px-3 whitespace-nowrap">사용 연도</th>
@@ -130,6 +131,12 @@ async function load() {
     return `<tr class="border-b border-slate-100 ${d.is_active ? "" : "bg-slate-50"}" data-id="${d.id}">
       <td class="py-2 px-3"><input class="d-name border border-slate-300 rounded px-2 py-1 text-sm w-52 ${d.is_active?'':'text-slate-400'}" value="${escapeHtml(d.name)}" /></td>
       <td class="py-2 px-3"><select class="d-type border border-slate-300 rounded px-1.5 py-1 text-xs">${typeOpts(d.metric_type)}</select></td>
+      <td class="py-2 px-3">
+        <select class="d-accum border border-slate-300 rounded px-1.5 py-1 text-xs" title="${escapeHtml(ACCUMULATION_INPUT_HINT[d.accumulation] || "")}">
+          ${Object.entries(ACCUMULATION_LABEL).map(([v, l]) =>
+            `<option value="${v}" ${d.accumulation === v ? "selected" : ""}>${escapeHtml(l.replace(/\s*\(.*\)/, ""))}</option>`).join("")}
+        </select>
+      </td>
       <td class="py-2 px-3"><input class="d-unit border rounded px-1.5 py-1 text-xs w-16 ${d.unit ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}" list="unit-options" value="${escapeHtml(d.unit || "")}" placeholder="미설정" title="${d.unit ? '' : '단위를 채워두면 목표 작성 시 자동으로 입력됩니다'}" /></td>
       <td class="py-2 px-3">
         <select class="d-period border border-slate-300 rounded px-1.5 py-1 text-xs">
@@ -154,7 +161,7 @@ async function load() {
           : `<span class="text-xs text-slate-300" title="목표에 사용 중입니다. 숨김 처리하세요">삭제불가</span>`}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">등록된 지표가 없습니다. 목표를 작성하면 자동으로 등록됩니다.</td></tr>`;
+  }).join("") || `<tr><td colspan="8" class="py-8 text-center text-slate-400 text-sm">등록된 지표가 없습니다. 목표를 작성하면 자동으로 등록됩니다.</td></tr>`;
 
   // 단위·유형이 채워져 있어야 목표 작성 화면에서 자동으로 입력된다
   const noUnit = DEFS.filter(d => !d.unit).length;
@@ -200,6 +207,7 @@ async function saveDefinition(id) {
   const { error } = await sb.from("kpi_definitions").update({
     name,
     metric_type: tr.querySelector(".d-type").value,
+    accumulation: tr.querySelector(".d-accum").value,
     unit: tr.querySelector(".d-unit").value.trim() || null,
     default_period_type: tr.querySelector(".d-period").value
   }).eq("id", id);

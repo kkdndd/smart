@@ -194,11 +194,16 @@ async function loadMetricsForGoal(goalId) {
       if (metricsWithPeriodTargets.has(m.id)) parts.push("기간별 목표값 설정됨");
       goalHint = parts.length ? parts.join(" · ") : `목표값 미설정 ${m.unit||''}`;
     }
+    // 담당자마다 당월 실적과 누적값을 다르게 넣으면 달성률이 틀어지므로, 입력 방법을 지표마다 명확히 안내한다
+    const accum = accumulationOf(m);
+    const accumBadge = (isMilestone || isQualitative) ? "" :
+      `<span class="badge ${accum === 'latest' ? 'bg-[#eaf0f8] text-[#4c6fa5]' : accum === 'average' ? 'bg-[#faf1de] text-[#b9821f]' : 'bg-[#f0f0f2] text-[#6e6e73]'}">${ACCUMULATION_SHORT[accum]}</span>`;
     return `<div class="card p-4 metric-card" data-metric="${m.id}">
-      <div class="flex items-center justify-between mb-2">
-        <h3 class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span></h3>
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span> ${accumBadge}</h3>
         ${canEdit ? `<button class="bulk-save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1.5 hover:bg-[#2c3342] whitespace-nowrap">일괄저장</button>` : ''}
       </div>
+      ${(isMilestone || isQualitative) ? "" : `<p class="text-[11px] mb-2 ${accum === 'latest' ? 'text-blue-600' : 'text-slate-400'}">${ACCUMULATION_INPUT_HINT[accum]}</p>`}
       <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead><tr class="text-left text-xs text-slate-400"><th class="px-2 py-1 w-[104px]">기간</th><th class="px-2 py-1">목표</th><th class="px-2 py-1">실적</th><th class="px-2 py-1">메모</th><th class="px-2 py-1">증빙파일</th><th class="px-2 py-1">입력자</th><th></th></tr></thead>
         <tbody>${rows}</tbody>

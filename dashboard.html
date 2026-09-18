@@ -187,11 +187,17 @@ async function loadData() {
   (periodTargets || []).forEach(pt => { ALL_PERIOD_TARGETS[pt.goal_metric_id + "|" + pt.period] = pt.target_value; });
 }
 
+// 달성률은 집계 방식(합산/누적/평균)에 맞춰 연간 실적을 산출한 뒤 계산한다.
+// 예전에는 최신 기간 실적만 썼기 때문에, 당월 실적을 넣는 합산형 지표가 항상 낮게 나왔다.
 function metricRate(metric) {
-  const p = LATEST_PROGRESS[metric.id];
-  if (!p) return null;
-  const override = ALL_PERIOD_TARGETS[metric.id + "|" + p.period];
-  return calcAchievementRate(metric, p.actual_value, p.milestone_achieved, override);
+  const entriesAsc = periodsForYear(YEAR, metric.period_type)
+    .map(p => ALL_PROGRESS_BY_KEY[metric.id + "|" + p])
+    .filter(Boolean);
+  if (!entriesAsc.length) return null;
+  const periodTargetValues = periodsForYear(YEAR, metric.period_type)
+    .map(p => ALL_PERIOD_TARGETS[metric.id + "|" + p])
+    .filter(v => v !== undefined && v !== null);
+  return annualAchievementRate(metric, entriesAsc, periodTargetValues);
 }
 function goalMetrics(goal) { return ALL_METRICS.filter(m => m.goal_id === goal.id); }
 
