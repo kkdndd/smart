@@ -319,18 +319,11 @@ function buildChartData(m, entries, periodTargetsByKey) {
     });
     targetNote = "기간별 목표값 기준";
   } else if (annual !== null) {
-    // 기간별 목표가 없으면 연간 목표로 참고선을 만든다 (실제 설정값이 아님을 명시)
-    // 집계 방식마다 "그 시점의 목표"가 다르다: 합산형은 균등 배분, 누적형은 균등 진행, 평균형은 같은 수준 유지
-    if (acc === "latest") {
-      targets = periods.map((_, i) => Math.round((annual * (i + 1) / periods.length) * 100) / 100);
-      targetNote = "연간 목표까지 균등 진행(참고)";
-    } else if (acc === "average") {
-      targets = periods.map(() => annual);
-      targetNote = "연간 목표 수준 유지(참고)";
-    } else {
-      targets = periods.map(() => Math.round((annual / periods.length) * 100) / 100);
-      targetNote = "연간 목표 균등 배분(참고)";
-    }
+    // 기간별 목표가 없으면 공용 규칙(referencePeriodTarget)으로 참고선을 만든다 (실제 설정값이 아님을 명시)
+    targets = periods.map((_, i) => referencePeriodTarget(m, i, periods.length));
+    targetNote = acc === "latest" ? "기준값→목표값 균등 진행(참고)"
+               : acc === "average" ? "연간 목표 수준 유지(참고)"
+               : "연간 목표 균등 배분(참고)";
   } else {
     targets = periods.map(() => null);
     targetNote = "";

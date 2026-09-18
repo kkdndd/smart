@@ -156,12 +156,22 @@ async function loadMetricsForGoal(goalId) {
     const isMilestone = m.metric_type === "milestone";
     const isQualitative = m.metric_type === "qualitative";
     const isNumeric = !isMilestone && !isQualitative;
-    const rows = periods.map(period => {
+    const rows = periods.map((period, idx) => {
       const key = m.id + "|" + period;
       const p = progressByKey[key];
       const periodTarget = periodTargetsByKey[key];
-      const effTarget = periodTarget !== undefined ? periodTarget : m.target_value;
-      const targetCell = isNumeric ? (effTarget !== null && effTarget !== undefined ? `${effTarget}${m.unit||''}` : '-') : '-';
+      // 기간별 목표가 설정돼 있으면 그 값을, 없으면 공용 규칙으로 계산한 참고값을 보여준다.
+      // (예전에는 연간 목표값을 매 기간에 그대로 표시해서, 합산형 지표의 월 목표가 연간 목표처럼 보였다)
+      let targetCell = '-';
+      if (isNumeric) {
+        if (periodTarget !== undefined && periodTarget !== null) {
+          targetCell = `${Number(periodTarget).toLocaleString()}${m.unit||''}`;
+        } else {
+          const ref = referencePeriodTarget(m, idx, periods.length);
+          targetCell = ref === null ? '-'
+            : `<span class="text-slate-400" title="기간별 목표값이 설정되지 않아 연간 목표로 계산한 참고값입니다">${ref.toLocaleString()}${m.unit||''} <span class="text-[10px]">(참고)</span></span>`;
+        }
+      }
       return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
         <td class="py-1.5 px-2 text-xs text-slate-500 w-[104px] whitespace-nowrap">${period}</td>
         <td class="py-1.5 px-2 text-xs text-slate-500 whitespace-nowrap">${targetCell}</td>

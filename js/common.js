@@ -276,6 +276,23 @@ function annualAchievementRate(metric, entriesAsc, periodTargetValues) {
   return Math.round((actual / target) * 1000) / 10;
 }
 
+// 기간별 목표값이 따로 설정되지 않은 지표의 "그 기간에 도달해야 할 수준" 참고값.
+// 화면마다 다르게 계산하면 같은 지표가 화면마다 다른 목표로 보이므로 여기 한 곳에서만 계산한다.
+//  · 합산형: 연간 목표 ÷ 기간수
+//  · 누적형: 기준값에서 목표값까지 균등하게 올라가는 수준 (기준값이 없으면 0에서 시작하는 누적으로 본다)
+//  · 평균형: 매 기간 연간 목표 수준을 유지
+function referencePeriodTarget(metric, idx, count) {
+  const target = (metric.target_value !== null && metric.target_value !== undefined) ? Number(metric.target_value) : null;
+  if (target === null || !count) return null;
+  const acc = accumulationOf(metric);
+  if (acc === "average") return target;
+  if (acc === "latest") {
+    const base = (metric.baseline_value !== null && metric.baseline_value !== undefined) ? Number(metric.baseline_value) : 0;
+    return Math.round((base + (target - base) * (idx + 1) / count) * 100) / 100;
+  }
+  return Math.round((target / count) * 100) / 100;
+}
+
 // 연중에는 합산형 지표가 항상 미달로 보이므로, 경과 기간 비율을 함께 본다 (2026-07이면 7/12 = 58%)
 function elapsedRatio(year, periodType, now) {
   now = now || new Date();

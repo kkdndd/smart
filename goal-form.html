@@ -839,17 +839,22 @@ function fillPeriodsEvenly(row) {
     return;
   }
   const acc = row.querySelector(".m-accum").value;
+  const baselineRaw = row.querySelector(".m-baseline").value;
   const inputs = periodInputs(row);
   const n = inputs.length;
+  // 화면 표시용 참고값과 같은 규칙을 쓴다 (common.js의 referencePeriodTarget)
+  const pseudoMetric = {
+    target_value: annual,
+    baseline_value: baselineRaw === "" ? null : Number(baselineRaw),
+    accumulation: acc
+  };
 
   inputs.forEach((inp, idx) => {
-    if (acc === "latest") {
-      inp.value = idx === n - 1 ? annual : Math.round((annual * (idx + 1) / n) * 100) / 100;
-    } else if (acc === "average") {
-      inp.value = annual;
-    } else {
+    if (acc === "sum") {
       const each = Math.round((annual / n) * 100) / 100;
-      inp.value = idx === n - 1 ? Math.round((annual - each * (n - 1)) * 100) / 100 : each;
+      inp.value = idx === n - 1 ? Math.round((annual - each * (n - 1)) * 100) / 100 : each; // 반올림 오차 보정
+    } else {
+      inp.value = referencePeriodTarget(pseudoMetric, idx, n);
     }
   });
   updatePeriodSum(row);

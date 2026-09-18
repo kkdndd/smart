@@ -69,12 +69,9 @@ const FIELD_DEFS = [
   { key: "timebound_text", label: "T · Time-bound" },
 ];
 
-// note가 붙은 항목은 KPI 기준정보(kpi_definitions)에서 관리하는 속성이다.
-// 여기서 바꾸면 이 목표에만 반영되고 기준정보와 달라져 연도별 비교가 어긋날 수 있어 경고를 띄운다.
+// 지표명·유형·단위·집계방식은 KPI 기준정보(kpi_definitions)에서 관리한다.
+// 변경요청으로 바꾸면 이 목표에만 반영되어 연도별 비교가 어긋나므로 여기서는 다루지 않는다.
 const METRIC_FIELD_DEFS = [
-  { key: "metric_name", label: "지표명", type: "text", note: "기준정보 소속" },
-  { key: "metric_type", label: "지표 유형", type: "select", options: Object.entries(METRIC_TYPE_LABEL), note: "기준정보 소속" },
-  { key: "unit", label: "단위", type: "text", note: "기준정보 소속" },
   { key: "baseline_value", label: "기준값", type: "number" },
   { key: "target_value", label: "목표값", type: "number" },
   { key: "period_type", label: "기간 유형", type: "select", options: [["monthly","월별"],["quarterly","분기별"]] },
@@ -133,23 +130,19 @@ function periodTargetGridHtml(m, ptMap) {
   // 그 목표 본래의 연도를 기준으로 기간 목록을 만든다.
   const periods = periodsForYear(CURRENT_GOAL.year, m.period_type);
   const unit = m.unit ? ` ${m.unit}` : "";
-  const annual = (m.target_value !== null && m.target_value !== undefined) ? Number(m.target_value) : null;
-  const acc = accumulationOf(m);
   const progress = CURRENT_PROGRESS_BY_METRIC[m.id] || {};
 
   return periods.map((p, idx) => {
     const set = ptMap && ptMap[p] !== undefined && ptMap[p] !== null;
-    // 기간별 목표가 없으면 연간 목표를 집계 방식에 맞게 나눈 값을 참고로 보여준다 (실제 설정값이 아님)
+    // 기간별 목표가 없으면 공용 규칙(referencePeriodTarget)으로 계산한 참고값을 보여준다 (실제 설정값이 아님)
     let currentHtml;
     if (set) {
       currentHtml = `<span class="font-medium text-slate-700">${Number(ptMap[p]).toLocaleString()}${unit}</span>`;
-    } else if (annual !== null) {
-      const ref = acc === "latest" ? annual * (idx + 1) / periods.length
-                : acc === "average" ? annual
-                : annual / periods.length;
-      currentHtml = `<span class="text-slate-400">미설정 · 연간기준 ${Math.round(ref * 100) / 100}${unit}</span>`;
     } else {
-      currentHtml = `<span class="text-slate-400">미설정</span>`;
+      const ref = referencePeriodTarget(m, idx, periods.length);
+      currentHtml = ref === null
+        ? `<span class="text-slate-400">미설정</span>`
+        : `<span class="text-slate-400">미설정 · 연간기준 ${ref.toLocaleString()}${unit}</span>`;
     }
 
     const entry = progress[p];
@@ -160,7 +153,7 @@ function periodTargetGridHtml(m, ptMap) {
       <p class="text-[10px] text-slate-400 mb-0.5">${periodLabel(p)}</p>
       <p class="text-[10px] rounded px-1 py-0.5 mb-0.5" style="background:var(--surface-hover)">${currentHtml}</p>
       ${actual}
-      <input type="number" step="any" class="mp-input w-full border border-slate-300 rounded px-1 py-0.5 text-xs" data-period="${p}" placeholder="변경 후" disabled />
+      <input type="number" step="any" class="mp-input w-full border border-slate-300 rounded px-1 py-0.5 text-xs" data-period="${p}" placeholder="변경 후" />
     </div>`;
   }).join("");
 }
@@ -236,17 +229,13 @@ function renderMetricGrid(metrics, periodTargetsByMetric) {
             </label>
             <p class="text-xs rounded p-2 mb-1" style="background:var(--surface-hover);color:var(--text-secondary)">${metricCurrentDisplay(m, f.key)}</p>
             ${metricInputHtml(f, m)}
-            ${f.note ? `<p class="text-[10px] text-amber-600 mt-0.5">이 항목은 KPI 기준정보에서 관리합니다. 여기서 바꾸면 이 목표에만 적용되어 다른 연도와 표기가 달라질 수 있습니다.</p>` : ""}
           </div>
         `).join("")}
       </div>
       ${isNumeric ? `
       <div class="mt-3 border-t border-slate-200 pt-2">
-        <label class="flex items-center gap-1.5 text-xs font-medium text-slate-500 mb-2">
-          <input type="checkbox" class="mp-check" />
-          <span>월별/분기별 목표값 변경 (변경할 기간만 입력, 나머지는 비워두면 유지)</span>
-        </label>
-        <div class="mp-grid hidden grid grid-cols-3 sm:grid-cols-4 gap-2">${periodTargetGridHtml(m, ptMap)}</div>
+        <p class="text-xs font-medium text-slate-500 mb-2">월별/분기별 목표값 변경 <span class="font-normal text-slate-400">(변경할 기간만 입력, 나머지는 비워두면 유지)</span></p>
+        <div class="mp-grid grid grid-cols-3 sm:grid-cols-4 gap-2">${periodTargetGridHtml(m, ptMap)}</div>
       </div>` : ''}
     </div>`;
   }).join("");
@@ -258,17 +247,6 @@ function renderMetricGrid(metrics, periodTargetsByMetric) {
       input.classList.toggle("opacity-50", !cb.checked);
       if (cb.checked) input.focus();
       else input.value = "";
-    });
-  });
-  root.querySelectorAll(".mp-check").forEach(cb => {
-    cb.addEventListener("change", () => {
-      const card = cb.closest("[data-metric-id]");
-      const grid = card.querySelector(".mp-grid");
-      grid.classList.toggle("hidden", !cb.checked);
-      grid.querySelectorAll(".mp-input").forEach(inp => {
-        inp.disabled = !cb.checked;
-        inp.classList.toggle("opacity-50", !cb.checked);
-      });
     });
   });
 }
@@ -326,20 +304,18 @@ document.getElementById("submit-cr")?.addEventListener("click", async () => {
     });
     if (Object.keys(fields).length) { proposedMetrics[metricId] = fields; previousMetrics[metricId] = prevFields; }
 
-    const mpCheck = card.querySelector(".mp-check");
-    if (mpCheck && mpCheck.checked) {
-      const periods = {};
-      const prevPeriods = {};
-      const curPtMap = CURRENT_PERIOD_TARGETS_BY_METRIC[metricId] || {};
-      card.querySelectorAll(".mp-input").forEach(inp => {
-        const v = inp.value;
-        if (v !== "" && v !== null) {
-          periods[inp.dataset.period] = v;
-          prevPeriods[inp.dataset.period] = curPtMap[inp.dataset.period] ?? null;
-        }
-      });
-      if (Object.keys(periods).length) { proposedPeriodChanges[metricId] = periods; previousPeriodChanges[metricId] = prevPeriods; }
-    }
+    // 기간별 목표값은 체크박스 없이 항상 입력 가능하다. 값을 적은 기간만 변경 대상으로 본다.
+    const periods = {};
+    const prevPeriods = {};
+    const curPtMap = CURRENT_PERIOD_TARGETS_BY_METRIC[metricId] || {};
+    card.querySelectorAll(".mp-input").forEach(inp => {
+      const v = inp.value;
+      if (v !== "" && v !== null) {
+        periods[inp.dataset.period] = v;
+        prevPeriods[inp.dataset.period] = curPtMap[inp.dataset.period] ?? null;
+      }
+    });
+    if (Object.keys(periods).length) { proposedPeriodChanges[metricId] = periods; previousPeriodChanges[metricId] = prevPeriods; }
   });
   if (missingValue) { alert("변경 체크한 항목에는 변경 후 값을 입력해주세요."); return; }
   if (Object.keys(proposed).length === 0 && Object.keys(proposedMetrics).length === 0 && Object.keys(proposedPeriodChanges).length === 0) { alert("변경할 항목을 하나 이상 체크하고 값을 입력해주세요."); return; }
