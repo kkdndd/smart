@@ -118,6 +118,11 @@
         <option value="qualitative">진척도(%) 자가평가 (정성)</option>
       </select>
       <input class="m-unit border border-slate-300 rounded px-2 py-1.5 text-sm" list="unit-options" placeholder="단위(건,명,%,억원)" />
+      <!-- 기준정보에 연결되면 유형·단위는 입력 대신 이 배지로 표시한다 (지표의 속성이지 올해 목표의 속성이 아니므로) -->
+      <div class="m-inherited hidden sm:col-span-2 flex items-center gap-2 text-sm">
+        <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs whitespace-nowrap" title="KPI 기준정보에 등록된 값입니다"></span>
+        <button type="button" class="m-edit-attrs text-[11px] text-slate-500 underline whitespace-nowrap">속성 수정</button>
+      </div>
       <select class="m-period border border-slate-300 rounded px-2 py-1.5 text-sm">
         <option value="monthly">월별 입력</option>
         <option value="quarterly">분기별 입력</option>
@@ -528,16 +533,19 @@ function syncKpiLink(row, opts) {
       row.querySelector(".m-type").value = def.metric_type;
       row.querySelector(".m-period").value = def.default_period_type;
       if (def.unit) row.querySelector(".m-unit").value = def.unit;
+      row.dataset.editAttrs = "";
       syncMetricRowType(row);
       renderPeriodTargetInputs(row, null);
       syncTargetModeVisibility(row);
     }
-    statusEl.textContent = `기존 지표와 연결됨 — 전년도 실적과 비교할 수 있습니다${def.unit ? ` (단위: ${def.unit})` : ""}`;
+    applyInheritedAttrs(row, def);
+    statusEl.textContent = "기존 지표와 연결됨 — 유형·단위는 KPI 기준정보를 따르고, 전년도 실적과 비교됩니다";
     statusEl.className = "m-kpi-status text-[11px] text-green-600";
     return;
   }
 
   row.dataset.kpiId = "";
+  applyInheritedAttrs(row, null);
   // 표기만 다른 기존 지표가 있으면 알려준다 (같은 지표가 두 개로 갈라지는 것을 막기 위함)
   const key = normalizeKpiName(name);
   const similar = KPI_DEFS.filter(d => {
@@ -550,6 +558,49 @@ function syncKpiLink(row, opts) {
   } else {
     statusEl.textContent = "새 지표로 등록됩니다 (다음 해부터 이 이름으로 선택할 수 있습니다)";
     statusEl.className = "m-kpi-status text-[11px] text-slate-400";
+  }
+}
+
+// 유형·단위는 지표의 속성이라 매년 다시 고를 필요가 없다.
+// 기준정보에 연결된 지표는 입력칸 대신 값을 표시하고, 필요할 때만 [속성 수정]으로 편집한다.
+function canEditKpiAttrs() {
+  return isCompanyStaff(PROFILE) || isHoldcoEditor(PROFILE); // 기준정보 수정 권한과 동일
+}
+
+function applyInheritedAttrs(row, def) {
+  const inherited = row.querySelector(".m-inherited");
+  const badge = inherited.querySelector("span");
+  const editBtn = inherited.querySelector(".m-edit-attrs");
+  const typeEl = row.querySelector(".m-type");
+  const unitEl = row.querySelector(".m-unit");
+  const editing = row.dataset.editAttrs === "1";
+  const isNonNumeric = (typeEl.value === "milestone" || typeEl.value === "qualitative");
+
+  // 기준정보에 연결되지 않았거나(신규 지표) 수정 모드면 평소처럼 입력칸을 쓴다
+  if (!def || editing) {
+    inherited.classList.add("hidden");
+    inherited.classList.remove("flex");
+    typeEl.classList.remove("hidden");
+    unitEl.classList.toggle("hidden", isNonNumeric);
+    return;
+  }
+
+  typeEl.classList.add("hidden");
+  unitEl.classList.add("hidden");
+  inherited.classList.remove("hidden");
+  inherited.classList.add("flex");
+
+  const typeLabel = METRIC_TYPE_LABEL[def.metric_type].replace(/\s*\(.*\)/, "");
+  const unitLabel = def.unit ? ` · ${def.unit}` : "";
+  badge.textContent = typeLabel + unitLabel;
+
+  if (def.unit) {
+    editBtn.textContent = canEditKpiAttrs() ? "속성 수정" : "";
+    editBtn.classList.toggle("hidden", !canEditKpiAttrs());
+  } else {
+    // 단위가 비어 있으면 누구나 한 번은 채울 수 있게 한다 (채우면 기준정보에 반영되어 다음부터 자동)
+    editBtn.textContent = "단위 입력";
+    editBtn.classList.remove("hidden");
   }
 }
 
@@ -566,9 +617,9 @@ function syncMetricRowType(row) {
   const isNonNumeric = (type === "milestone" || type === "qualitative");
   row.querySelector(".m-numeric-fields").classList.toggle("hidden", isNonNumeric);
   row.querySelector(".m-hint").textContent = METRIC_TYPE_HINT[type] || "";
-  // 마일스톤은 단위 개념이 없고, 정성형은 % 고정이라 단위 입력을 감춘다
-  row.querySelector(".m-unit").classList.toggle("hidden", isNonNumeric);
   row.querySelector(".m-baseline-hint").classList.toggle("hidden", type !== "decreasing");
+  // 단위 입력칸 노출 여부는 기준정보 연결 상태까지 함께 따져야 하므로 한곳에서 처리한다
+  applyInheritedAttrs(row, findKpiByName(row.querySelector(".m-name").value));
 }
 
 function periodInputs(row) {
@@ -679,6 +730,19 @@ function addMetricRow(m, periodTargetsMap) {
     else if (e.key === "Escape") hideSuggestions(row);
   });
   row.querySelector(".m-browse").addEventListener("click", () => openKpiModal(row));
+  row.querySelector(".m-edit-attrs").addEventListener("click", () => {
+    const def = findKpiByName(row.querySelector(".m-name").value);
+    row.dataset.editAttrs = "1";
+    applyInheritedAttrs(row, def);
+    const statusEl = row.querySelector(".m-kpi-status");
+    statusEl.className = "m-kpi-status text-[11px] text-amber-600";
+    statusEl.textContent = (def && !def.unit)
+      ? "입력한 단위는 KPI 기준정보에 저장되어 다음부터 자동으로 채워집니다"
+      : (canEditKpiAttrs()
+          ? "저장하면 이 지표의 기준정보(유형·단위)도 함께 수정됩니다"
+          : "이 목표에만 적용됩니다 (기준정보 수정은 계열사 담당자 권한)");
+    (def && !def.unit ? row.querySelector(".m-unit") : row.querySelector(".m-type")).focus();
+  });
   row.querySelector(".m-remove").addEventListener("click", () => removeMetricRow(row));
   row.querySelector(".m-type").addEventListener("change", () => syncMetricRowType(row));
   row.querySelector(".m-unit").addEventListener("input", () => { updateAnnualFormat(row); });
@@ -928,6 +992,22 @@ async function saveGoal(mode) {
     }
     m.kpiDefId = newDef.id;
     KPI_DEFS.push(newDef);
+  }
+
+  // [속성 수정]으로 유형·단위를 손댄 경우 기준정보에도 반영해, 내년에 다시 입력하지 않게 한다
+  for (const m of metrics) {
+    if (m.rowEl.dataset.editAttrs !== "1" || !m.kpiDefId) continue;
+    const def = KPI_DEFS.find(d => d.id === m.kpiDefId);
+    if (!def) continue;
+    if (!def.unit && m.payload.unit) {
+      // 비어 있던 단위를 채우는 것은 사업부 담당자도 할 수 있다
+      const { error } = await sb.rpc("fill_kpi_definition_defaults", { p_id: m.kpiDefId, p_unit: m.payload.unit });
+      if (!error) def.unit = m.payload.unit;
+    } else if (canEditKpiAttrs()) {
+      const { error } = await sb.from("kpi_definitions")
+        .update({ metric_type: m.payload.metric_type, unit: m.payload.unit }).eq("id", m.kpiDefId);
+      if (!error) { def.metric_type = m.payload.metric_type; def.unit = m.payload.unit; }
+    }
   }
 
   for (const m of metrics) {
