@@ -195,7 +195,7 @@ function metricSummaryHtml(m) {
   }
 
   const actual = isNumeric ? annualActual(m, entriesAsc) : null;
-  const rate = annualAchievementRate(m, entriesAsc, []);
+  const rate = achievementRate(m, entriesAsc, CURRENT_PERIOD_TARGETS_BY_METRIC[m.id] || {}, CURRENT_GOAL.year);
   const progressText = entriesAsc.length
     ? `현재 실적 ${actual !== null ? Number(actual).toLocaleString() + unit : "-"}${rate !== null ? ` · 달성률 ${rate}%` : ""} (${entriesAsc.length}개 기간 입력됨)`
     : "아직 입력된 실적이 없습니다";

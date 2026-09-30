@@ -314,8 +314,19 @@ function annualTarget(metric, periodTargetValues) {
   return aggregateValues(periodTargetValues || [], accumulationOf(metric));
 }
 
-// 연간 목표 대비 달성률 (지표 카드·대시보드의 대표 숫자)
-function annualAchievementRate(metric, entriesAsc, periodTargetValues) {
+// 그 기간에 도달해야 할 목표값. 기간별 목표가 설정돼 있으면 그 값을, 없으면 연간 목표로 계산한 참고값을 쓴다.
+function periodTargetAt(metric, period, idx, count, periodTargetMap) {
+  const set = periodTargetMap && periodTargetMap[period];
+  if (set !== undefined && set !== null && set !== "") return Number(set);
+  return referencePeriodTarget(metric, idx, count);
+}
+
+// 달성률 — 실적이 입력된 기간의 목표와만 비교한다.
+//
+// 예전에는 "연간 실적 ÷ 연간 목표"로 계산했는데, 7월까지 입력한 실적을 12개월 목표와 비교하게 되어
+// 합산형 지표에서 값이 크게 왜곡됐다(월 목표·실적이 매달 똑같이 1,1,2,2,3,3,3인데도 300%로 표시).
+// 같은 구간끼리 비교하면 집계 방식(합산/누적/평균)과 무관하게 "목표만큼 했으면 100%"가 나온다.
+function achievementRate(metric, entriesAsc, periodTargetMap, year) {
   if (metric.metric_type === "milestone") {
     const done = (entriesAsc || []).filter(e => e.milestone_achieved === true).length;
     const total = (entriesAsc || []).filter(e => e.milestone_achieved !== null && e.milestone_achieved !== undefined).length;
@@ -325,15 +336,56 @@ function annualAchievementRate(metric, entriesAsc, periodTargetValues) {
     // 진척도는 마지막에 보고된 값이 곧 현재 수준
     return aggregateValues((entriesAsc || []).map(e => e.actual_value), "latest");
   }
-  const actual = annualActual(metric, entriesAsc);
-  const target = annualTarget(metric, periodTargetValues);
-  if (actual === null || target === null || isNaN(target) || target === 0) return null;
+
+  const periods = periodsForYear(year, metric.period_type);
+  const idxOf = {};
+  periods.forEach((p, i) => { idxOf[p] = i; });
+
+  const actuals = [], targets = [];
+  (entriesAsc || []).forEach(e => {
+    if (e.actual_value === null || e.actual_value === undefined) return;
+    const idx = idxOf[e.period];
+    if (idx === undefined) return; // 기간 유형이 바뀌어 짝이 맞지 않는 옛 실적은 제외
+    actuals.push(Number(e.actual_value));
+    targets.push(periodTargetAt(metric, e.period, idx, periods.length, periodTargetMap));
+  });
+  if (!actuals.length || targets.some(t => t === null || t === undefined)) return null;
+
+  const acc = accumulationOf(metric);
+  const actual = aggregateValues(actuals, acc);
+  const target = aggregateValues(targets, acc);
+  if (actual === null || target === null || target === 0) return null;
+
   if (metric.metric_type === "decreasing") {
     const baseline = Number(metric.baseline_value);
     if (isNaN(baseline) || baseline === target) return null;
     return Math.round(((baseline - actual) / (baseline - target)) * 1000) / 10;
   }
   return Math.round((actual / target) * 1000) / 10;
+}
+
+// 연간 목표 대비 진척 (참고 지표). 합산형은 누계, 누적형은 현재값, 평균형은 평균을 연간 목표와 비교한다.
+function annualProgressRate(metric, entriesAsc) {
+  if (metric.metric_type === "milestone" || metric.metric_type === "qualitative") return null;
+  const actual = annualActual(metric, entriesAsc);
+  const target = (metric.target_value !== null && metric.target_value !== undefined) ? Number(metric.target_value) : null;
+  if (actual === null || target === null || target === 0) return null;
+  return Math.round((actual / target) * 1000) / 10;
+}
+
+// 기간별 목표의 합계(집계 방식 기준)가 연간 목표값과 어긋나면 알려준다.
+// 예: 합산형인데 월 목표를 누적값으로 넣으면 합계가 연간 목표를 크게 넘어선다.
+function targetConsistencyWarning(metric, periodTargetMap, year) {
+  const annual = (metric.target_value !== null && metric.target_value !== undefined) ? Number(metric.target_value) : null;
+  if (annual === null || !periodTargetMap) return "";
+  const periods = periodsForYear(year, metric.period_type);
+  const values = periods.map(p => periodTargetMap[p]).filter(v => v !== undefined && v !== null && v !== "");
+  if (values.length !== periods.length) return ""; // 일부만 설정된 경우는 비교하지 않는다
+  const rolled = aggregateValues(values, accumulationOf(metric));
+  if (rolled === null || Math.abs(rolled - annual) < 0.001) return "";
+  const acc = accumulationOf(metric);
+  const label = acc === "latest" ? "마지막 기간 목표" : acc === "average" ? "기간 목표 평균" : "기간 목표 합계";
+  return `${label} ${rolled.toLocaleString()} 이(가) 연간 목표값 ${annual.toLocaleString()} 과(와) 다릅니다. 집계 방식이나 목표값을 확인해주세요.`;
 }
 
 // 기간별 목표값이 따로 설정되지 않은 지표의 "그 기간에 도달해야 할 수준" 참고값.
@@ -366,14 +418,18 @@ function elapsedRatio(year, periodType, now) {
   return Math.min(1, done / total);
 }
 
-// 합산형은 연말 기준 달성률과 별개로 "지금 페이스가 정상인지"를 봐야 한다
-function paceText(metric, rate, year, now) {
-  if (rate === null || accumulationOf(metric) !== "sum") return "";
-  const expected = Math.round(elapsedRatio(year, metric.period_type, now) * 100);
-  if (expected === 0 || expected >= 100) return "";
-  const diff = Math.round(rate - expected);
-  if (Math.abs(diff) < 5) return `기간 경과 ${expected}% · 정상 페이스`;
-  return `기간 경과 ${expected}% · ${diff > 0 ? "+" : ""}${diff}%p`;
+// 달성률은 이제 "실적이 입력된 구간의 목표 대비"라서 페이스 개념이 이미 반영돼 있다.
+// 대신 연간 목표까지 얼마나 왔는지를 보조로 보여준다. (예: 7/12기간 · 연간 목표의 58%)
+function progressSubText(metric, entriesAsc, year) {
+  const periods = periodsForYear(year, metric.period_type);
+  const filled = (entriesAsc || []).filter(e =>
+    (e.actual_value !== null && e.actual_value !== undefined) ||
+    (e.milestone_achieved !== null && e.milestone_achieved !== undefined)).length;
+  if (!filled) return "";
+  const parts = [`${filled}/${periods.length}기간 입력`];
+  const annual = annualProgressRate(metric, entriesAsc);
+  if (annual !== null) parts.push(`연간 목표의 ${annual}%`);
+  return parts.join(" · ");
 }
 
 function rateColorClass(rate) {

@@ -210,11 +210,15 @@ async function loadMetrics() {
 
   root.innerHTML = metrics.map(m => {
     const entriesAsc = (progress||[]).filter(p => p.goal_metric_id === m.id);
-    // 달성률은 집계 방식(합산/누적/평균)에 맞춰 연간 실적을 산출한 뒤 계산한다
-    const periodTargetValues = periodsForYear(GOAL.year, m.period_type)
-      .map(p => periodTargetsByKey[m.id + "|" + p]).filter(v => v !== undefined && v !== null);
-    const rate = annualAchievementRate(m, entriesAsc, periodTargetValues);
-    const pace = paceText(m, rate, GOAL.year);
+    // 달성률은 실적이 입력된 기간의 목표와만 비교한다 (구간을 맞춰야 왜곡이 없다)
+    const ptMap = {};
+    periodsForYear(GOAL.year, m.period_type).forEach(p => {
+      const v = periodTargetsByKey[m.id + "|" + p];
+      if (v !== undefined && v !== null) ptMap[p] = v;
+    });
+    const rate = achievementRate(m, entriesAsc, ptMap, GOAL.year);
+    const pace = progressSubText(m, entriesAsc, GOAL.year);
+    const targetWarning = targetConsistencyWarning(m, ptMap, GOAL.year);
     const isNumeric = (m.metric_type === 'increasing' || m.metric_type === 'decreasing');
     const history = entriesAsc.map(p => {
       const effTarget = periodTargetsByKey[m.id + "|" + p.period] ?? m.target_value;
@@ -246,6 +250,7 @@ async function loadMetrics() {
         </span>
       </div>
       <p class="text-xs text-slate-500 mb-2">${targetHint}</p>
+      ${targetWarning ? `<p class="text-[11px] text-amber-600 mb-2">⚠ ${escapeHtml(targetWarning)}</p>` : ''}
       ${prevYearHtml(m, prevSummary)}
       ${m.metric_type === "milestone" ? milestoneTimelineHtml(m, entriesAsc) : chartBlockHtml(m)}
       <details class="mt-2">
