@@ -99,7 +99,18 @@ function renderActions() {
   if (canReviewNow) {
     actions.push(`<a href="review.html?goal=${GOAL.id}" class="text-sm bg-blue-600 text-white rounded px-3 py-1.5">검토하기</a>`);
   }
+  if (canDeleteGoal(PROFILE, GOAL)) {
+    actions.push(`<button onclick="deleteThisGoal()" class="text-sm bg-white border border-red-300 text-red-600 rounded px-3 py-1.5 hover:bg-red-50">삭제</button>`);
+  }
   document.getElementById("header-actions").innerHTML = actions.join("");
+}
+
+// 임시저장 목표 삭제 후 목록으로 이동
+async function deleteThisGoal() {
+  if (await confirmAndDeleteGoal(GOAL)) {
+    alert("삭제되었습니다.");
+    window.location.href = "goals.html";
+  }
 }
 
 async function withdrawSubmission() {

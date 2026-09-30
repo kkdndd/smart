@@ -173,6 +173,66 @@ function roleLabel(role) {
   return ROLE_LABEL[role] || role;
 }
 
+// 목표 삭제는 임시저장 상태에서만 허용한다 (제출 이후에는 결재 이력이 남아야 하므로 제출취소 후 삭제)
+// DB의 goals_delete 정책과 같은 규칙을 화면에서도 미리 판단한다.
+function canDeleteGoal(profile, goal) {
+  if (!goal || goal.status !== "draft") return false;
+  if (isHoldcoEditor(profile)) return true;
+  if (isCompanyStaff(profile)) return goal.company_id === profile.company_id;
+  if (isBuStaff(profile)) {
+    return goal.company_id === profile.company_id
+      && goal.business_unit_id && profile.business_unit_ids.includes(goal.business_unit_id);
+  }
+  return false;
+}
+
+// 삭제하면 함께 사라지는 데이터 규모를 미리 센다 (지표·실적은 DB에서 CASCADE로 삭제됨)
+async function goalDeleteImpact(goalId) {
+  const { data: metrics } = await sb.from("goal_metrics").select("id").eq("goal_id", goalId);
+  const metricIds = (metrics || []).map(m => m.id);
+  let entries = [];
+  if (metricIds.length) {
+    const { data: rows } = await sb.from("progress_entries").select("attachment_path").in("goal_metric_id", metricIds);
+    entries = rows || [];
+  }
+  return {
+    metricIds,
+    metricCount: metricIds.length,
+    entryCount: entries.length,
+    attachmentPaths: entries.map(e => e.attachment_path).filter(Boolean)
+  };
+}
+
+// 목표 삭제. DB는 지표·실적·검토이력이 CASCADE로 지워지지만
+// 스토리지의 증빙파일은 따로 지우지 않으면 고아 파일로 남는다.
+async function deleteGoalCascade(goalId, attachmentPaths) {
+  if (attachmentPaths && attachmentPaths.length) {
+    const { error: fileErr } = await sb.storage.from("progress-attachments").remove(attachmentPaths);
+    if (fileErr) console.error("첨부파일 삭제 실패:", fileErr); // 파일 정리 실패가 목표 삭제를 막지는 않는다
+  }
+  return await sb.from("goals").delete().eq("id", goalId);
+}
+
+// 확인 문구를 만들고 삭제까지 수행한다. 삭제했으면 true를 돌려준다.
+async function confirmAndDeleteGoal(goal) {
+  const impact = await goalDeleteImpact(goal.id);
+  const lines = [`'${goal.strategy_name}' 목표를 삭제할까요?`, ""];
+  if (impact.metricCount) lines.push(`· 핵심지표 ${impact.metricCount}개`);
+  if (impact.entryCount) lines.push(`· 입력된 실적 ${impact.entryCount}건`);
+  if (impact.attachmentPaths.length) lines.push(`· 증빙파일 ${impact.attachmentPaths.length}개`);
+  if (impact.metricCount || impact.entryCount) lines.push("", "위 데이터가 함께 삭제되며 되돌릴 수 없습니다.");
+  else lines.push("되돌릴 수 없습니다.");
+
+  if (!confirm(lines.join("\n"))) return false;
+
+  const { error } = await deleteGoalCascade(goal.id, impact.attachmentPaths);
+  if (error) {
+    alert("삭제 실패: " + error.message + "\n(임시저장 상태의 목표만 삭제할 수 있습니다)");
+    return false;
+  }
+  return true;
+}
+
 async function signOutAndRedirect() {
   await sb.auth.signOut();
   window.location.href = "index.html";
