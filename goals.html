@@ -23,6 +23,10 @@
         <label for="bu-select" class="text-xs font-semibold text-slate-500 whitespace-nowrap">사업부</label>
         <select id="bu-select" class="border border-slate-300 rounded px-2 py-1 text-sm font-medium text-slate-700 bg-white"></select>
       </div>
+      <div id="author-filter" class="hidden items-center gap-2 bg-slate-50 border border-slate-300 rounded-lg pl-3 pr-2 py-1">
+        <label for="author-select" class="text-xs font-semibold text-slate-500 whitespace-nowrap">작성자</label>
+        <select id="author-select" class="border border-slate-300 rounded px-2 py-1 text-sm font-medium text-slate-700 bg-white"></select>
+      </div>
     </div>
     <div class="flex items-center gap-2">
       <button id="copy-prev-btn" class="hidden bg-white border border-slate-300 text-slate-700 text-sm rounded px-3 py-2 hover:bg-slate-100 whitespace-nowrap">작년 목표 불러오기</button>
@@ -38,6 +42,7 @@
         <th class="py-2 px-3">핵심지표 · 목표값</th>
         <th class="py-2 px-3">S · 무엇을 / M · 어떻게 측정</th>
         <th class="py-2 px-3 whitespace-nowrap">상태</th>
+        <th class="py-2 px-3 whitespace-nowrap">작성자</th>
         <th class="py-2 px-3">최근 검토 의견</th>
         <th class="py-2 px-3"></th>
       </tr></thead>
@@ -48,7 +53,7 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "";
+let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "", SELECTED_AUTHOR_ID = "";
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
@@ -65,7 +70,12 @@ let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "";
     SELECTED_COMPANY_ID = COMPANIES[0] ? COMPANIES[0].id : null;
     const sel = document.getElementById("company-select");
     sel.innerHTML = COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    sel.addEventListener("change", async () => { SELECTED_COMPANY_ID = sel.value; SELECTED_BU_ID = ""; await loadBuFilter(); loadGoals(); });
+    sel.addEventListener("change", async () => {
+      SELECTED_COMPANY_ID = sel.value;
+      SELECTED_BU_ID = ""; SELECTED_AUTHOR_ID = ""; // 회사가 바뀌면 하위 필터는 초기화
+      await loadBuFilter();
+      loadGoals();
+    });
     showFilter("company-filter");
   } else {
     SELECTED_COMPANY_ID = PROFILE.company_id;
@@ -99,6 +109,30 @@ async function loadBuFilter() {
   sel.value = SELECTED_BU_ID;
   sel.onchange = () => { SELECTED_BU_ID = sel.value; loadGoals(); };
   showFilter("bu-filter");
+}
+
+// 작성자 필터는 실제로 목표를 작성한 사람만 선택지로 올린다 (건수까지 보여줘 누가 얼마나 올렸는지 바로 보이게)
+function renderAuthorFilter(goals) {
+  const sel = document.getElementById("author-select");
+  const byId = {};
+  let unknown = 0;
+  goals.forEach(g => {
+    if (!g.created_by) { unknown++; return; }
+    const name = g.creator ? (g.creator.name || g.creator.email) : "(알 수 없는 계정)";
+    if (!byId[g.created_by]) byId[g.created_by] = { name, count: 0 };
+    byId[g.created_by].count++;
+  });
+
+  const options = Object.entries(byId).sort((a, b) => a[1].name.localeCompare(b[1].name, "ko"));
+  sel.innerHTML = `<option value="">전체 작성자</option>`
+    + options.map(([id, o]) => `<option value="${id}">${escapeHtml(o.name)} (${o.count})</option>`).join("")
+    + (unknown ? `<option value="__none__">작성자 미지정 (${unknown})</option>` : "");
+
+  // 고른 작성자가 목록에서 사라졌으면(연도·회사 변경 등) 전체로 되돌린다
+  if (SELECTED_AUTHOR_ID && !sel.querySelector(`option[value="${SELECTED_AUTHOR_ID}"]`)) SELECTED_AUTHOR_ID = "";
+  sel.value = SELECTED_AUTHOR_ID;
+  sel.onchange = () => { SELECTED_AUTHOR_ID = sel.value; loadGoals(); };
+  showFilter("author-filter");
 }
 
 document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
@@ -170,14 +204,25 @@ async function copyPreviousYearGoals() {
 }
 
 async function loadGoals() {
-  let q = sb.from("goals").select("*, business_units:business_unit_id(name)").eq("year", getSelectedYear());
-  q = q.eq("company_id", SELECTED_COMPANY_ID || "___none___");
-  if (SELECTED_BU_ID) q = q.eq("business_unit_id", SELECTED_BU_ID);
-  const { data: rawGoals, error } = await q;
+  // 사업부·작성자 필터는 화면에서 거른다. 서버에서 걸러버리면 작성자 목록이 선택에 따라 들쭉날쭉해진다.
+  const { data: rawGoals, error } = await sb.from("goals")
+    .select("*, business_units:business_unit_id(name), creator:created_by(name,email)")
+    .eq("year", getSelectedYear())
+    .eq("company_id", SELECTED_COMPANY_ID || "___none___");
   if (error) { console.error(error); return; }
 
+  const allGoals = rawGoals || [];
+  renderAuthorFilter(allGoals);
+
+  const filtered = allGoals.filter(g => {
+    if (SELECTED_BU_ID && g.business_unit_id !== SELECTED_BU_ID) return false;
+    if (SELECTED_AUTHOR_ID === "__none__") return !g.created_by;
+    if (SELECTED_AUTHOR_ID) return g.created_by === SELECTED_AUTHOR_ID;
+    return true;
+  });
+
   // 관리번호가 사업부별로 1번부터 매겨지므로, 사업부로 묶은 뒤 번호 순으로 보여준다
-  const goals = sortGoalsByBusinessUnit(rawGoals || []);
+  const goals = sortGoalsByBusinessUnit(filtered);
   LOADED_GOALS = goals; // 삭제 시 대상 목표를 찾기 위해 보관
 
   const goalIds = (goals||[]).map(g=>g.id);
@@ -258,6 +303,7 @@ async function loadGoals() {
       <td class="py-2 px-3 text-xs align-top">${metricCellHtml(g)}</td>
       <td class="py-2 px-3 text-xs text-slate-600 align-top max-w-xs">${smCellHtml(g)}</td>
       <td class="py-2 px-3 text-sm whitespace-nowrap align-top"><span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
+      <td class="py-2 px-3 text-xs align-top whitespace-nowrap ${g.creator ? 'text-slate-600' : 'text-slate-300'}">${g.creator ? escapeHtml(g.creator.name || g.creator.email) : '미지정'}</td>
       <td class="py-2 px-3 text-xs text-slate-500 align-top max-w-[10rem]"><span class="line-clamp-2">${lastReview ? escapeHtml(lastReview.comment||'') : ''}</span></td>
       <td class="py-2 px-3 text-sm text-right whitespace-nowrap align-top" onclick="event.stopPropagation()">
         <a href="goal-detail.html?id=${g.id}" class="text-slate-500 hover:underline mr-3">상세</a>
@@ -265,7 +311,10 @@ async function loadGoals() {
         ${canDeleteGoal(PROFILE, g) ? `<button onclick="deleteGoal('${g.id}')" class="text-red-500 hover:underline ml-3">삭제</button>` : ''}
       </td>
     </tr>`;
-  }).join("") || `<tr><td colspan="8" class="py-8 text-center text-slate-400 text-sm">등록된 목표가 없습니다.${canWriteGoals(PROFILE) ? " '새 목표 작성'으로 시작하세요." : ""}</td></tr>`;
+  }).join("") || `<tr><td colspan="9" class="py-8 text-center text-slate-400 text-sm">${
+      (SELECTED_BU_ID || SELECTED_AUTHOR_ID) ? "조건에 맞는 목표가 없습니다."
+      : `등록된 목표가 없습니다.${canWriteGoals(PROFILE) ? " '새 목표 작성'으로 시작하세요." : ""}`
+    }</td></tr>`;
 }
 </script>
 </body>
