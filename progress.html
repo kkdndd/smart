@@ -173,7 +173,7 @@ async function loadMetricsForGoal(goalId) {
         }
       }
       return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
-        <td class="py-1.5 px-2 text-xs text-slate-500 w-[104px] whitespace-nowrap">${period}</td>
+        <td class="py-1.5 px-2 text-xs text-slate-500 w-[104px] whitespace-nowrap" title="${period}">${YEAR}년 ${periodDisplayLabel(period)}</td>
         <td class="py-1.5 px-2 text-xs text-slate-500 whitespace-nowrap">${targetCell}</td>
         <td class="py-1.5 px-2">
           ${isMilestone

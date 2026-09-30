@@ -298,8 +298,11 @@ function elapsedRatio(year, periodType, now) {
   now = now || new Date();
   if (now.getFullYear() > year) return 1;
   if (now.getFullYear() < year) return 0;
-  const total = periodType === "quarterly" ? 4 : 12;
-  const done = periodType === "quarterly" ? Math.floor(now.getMonth() / 3) + 1 : now.getMonth() + 1;
+  const total = periodCount(periodType);
+  const done = periodType === "annual" ? 1
+             : periodType === "half" ? Math.floor(now.getMonth() / 6) + 1
+             : periodType === "quarterly" ? Math.floor(now.getMonth() / 3) + 1
+             : now.getMonth() + 1;
   return Math.min(1, done / total);
 }
 
@@ -349,21 +352,53 @@ function nl2br(str) {
   return escapeHtml(str).replace(/\n/g, "<br/>");
 }
 
-// 연도 기준 월별/분기별 period 문자열 목록 생성
+// ---- 실적 입력 주기 ----
+// 기간 문자열 표기: 2026-01(월) / 2026-Q1(분기) / 2026-H1(반기) / 2026-Y(연간)
+const PERIOD_TYPE_LABEL = {
+  monthly: "월별",
+  quarterly: "분기별",
+  half: "반기별",
+  annual: "연 1회"
+};
+const PERIOD_TYPE_COUNT = { monthly: 12, quarterly: 4, half: 2, annual: 1 };
+
+function periodCount(periodType) {
+  return PERIOD_TYPE_COUNT[periodType] || 12;
+}
+
+// 연도 기준 period 문자열 목록 생성
 function periodsForYear(year, periodType) {
-  if (periodType === "quarterly") {
-    return [1, 2, 3, 4].map(q => `${year}-Q${q}`);
-  }
+  if (periodType === "annual") return [`${year}-Y`];
+  if (periodType === "half") return [1, 2].map(h => `${year}-H${h}`);
+  if (periodType === "quarterly") return [1, 2, 3, 4].map(q => `${year}-Q${q}`);
   return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
 }
 
-// 해당 기간(월/분기) 실적의 입력 마감일을 계산한다.
-// 규칙: 월별 실적은 해당 월의 다음 달 말일까지, 분기별 실적은 해당 분기 종료월의 다음 달 말일까지 입력.
-// 예) 2026-01(월별) → 마감 2026-02-28 / 2026-Q1(분기별, 3월 종료) → 마감 2026-04-30
+// 기간 문자열을 화면용 라벨로 (2026-03 → 3월, 2026-H1 → 상반기, 2026-Y → 연간)
+function periodDisplayLabel(period) {
+  if (!period) return "";
+  if (/-Y$/.test(period)) return "연간";
+  const h = period.match(/-H(\d)$/);
+  if (h) return h[1] === "1" ? "상반기" : "하반기";
+  const q = period.match(/-Q(\d)$/);
+  if (q) return `${q[1]}분기`;
+  const mm = period.match(/-(\d{2})$/);
+  if (mm) return `${parseInt(mm[1], 10)}월`;
+  return period;
+}
+
+// 해당 기간 실적의 입력 마감일. 규칙: 그 기간이 끝나는 달의 "다음 달 말일"까지 입력.
+// 예) 2026-01 → 2026-02-28 / 2026-Q1(3월 종료) → 2026-04-30
+//     2026-H1(6월 종료) → 2026-07-31 / 2026-Y(12월 종료) → 2027-01-31
 function periodDeadline(period, periodType) {
   const year = parseInt(period.slice(0, 4), 10);
   let endMonth; // 해당 기간이 끝나는 월 (1~12)
-  if (periodType === "quarterly") {
+  if (periodType === "annual") {
+    endMonth = 12;
+  } else if (periodType === "half") {
+    const h = parseInt(period.replace(/^\d{4}-H/, ""), 10);
+    endMonth = h * 6;
+  } else if (periodType === "quarterly") {
     const q = parseInt(period.replace(/^\d{4}-Q/, ""), 10);
     endMonth = q * 3;
   } else {

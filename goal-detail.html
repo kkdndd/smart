@@ -228,7 +228,7 @@ async function loadMetrics() {
     }
     return `<div class="border border-slate-200 rounded p-3">
       <div class="flex items-center justify-between mb-1">
-        <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${METRIC_TYPE_LABEL[m.metric_type]} · ${m.period_type==='monthly'?'월별':'분기별'} · ${ACCUMULATION_SHORT[accumulationOf(m)]})</span></span>
+        <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${METRIC_TYPE_LABEL[m.metric_type]} · ${PERIOD_TYPE_LABEL[m.period_type] || m.period_type} · ${ACCUMULATION_SHORT[accumulationOf(m)]})</span></span>
         <span class="text-right">
           <span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(rate)}">${rate===null?'실적없음':rate+'%'}</span>
           ${pace ? `<span class="block text-[10px] text-slate-400 mt-0.5">${pace}</span>` : ''}
@@ -362,10 +362,7 @@ function buildChartData(m, entries, periodTargetsByKey) {
 }
 
 function periodShortLabel(period) {
-  const mm = period.match(/-(\d{2})$/);
-  if (mm) return `${parseInt(mm[1], 10)}월`;
-  const q = period.match(/-Q(\d)$/);
-  return q ? `${q[1]}Q` : period;
+  return periodDisplayLabel(period);
 }
 
 // 집계 방식에 따라 "누적" 관점의 이름이 달라진다

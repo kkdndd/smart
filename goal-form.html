@@ -126,6 +126,8 @@
       <select class="m-period border border-slate-300 rounded px-2 py-1.5 text-sm">
         <option value="monthly">월별 입력</option>
         <option value="quarterly">분기별 입력</option>
+        <option value="half">반기별 입력</option>
+        <option value="annual">연 1회 입력</option>
       </select>
       <select class="m-accum border border-slate-300 rounded px-2 py-1.5 text-sm">
         <option value="sum">합산형 (당월 실적)</option>
@@ -691,13 +693,9 @@ function updateAnnualFormat(row) {
     v === "" || isNaN(Number(v)) ? "" : Number(v).toLocaleString() + (unit ? " " + unit : "");
 }
 
-// 기간(YYYY-MM 또는 YYYY-Qn)을 "N월"/"N분기" 형태로 보기 좋게 변환
+// 기간 라벨은 common.js의 periodDisplayLabel로 통일 (월/분기/반기/연간)
 function periodLabel(period) {
-  const monthMatch = period.match(/-(\d{2})$/);
-  if (monthMatch) return `${parseInt(monthMatch[1], 10)}월`;
-  const qMatch = period.match(/-Q(\d)$/);
-  if (qMatch) return `${qMatch[1]}분기`;
-  return period;
+  return periodDisplayLabel(period);
 }
 
 function renderPeriodTargetInputs(row, existingMap) {

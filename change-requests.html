@@ -74,7 +74,7 @@ const FIELD_DEFS = [
 const METRIC_FIELD_DEFS = [
   { key: "baseline_value", label: "기준값", type: "number" },
   { key: "target_value", label: "목표값", type: "number" },
-  { key: "period_type", label: "기간 유형", type: "select", options: [["monthly","월별"],["quarterly","분기별"]] },
+  { key: "period_type", label: "기간 유형", type: "select", options: Object.entries(PERIOD_TYPE_LABEL) },
 ];
 
 (async function init() {
@@ -160,7 +160,7 @@ function periodTargetGridHtml(m, ptMap) {
 
 function metricCurrentDisplay(m, key) {
   if (key === "metric_type") return escapeHtml(METRIC_TYPE_LABEL[m.metric_type] || m.metric_type || "-");
-  if (key === "period_type") return m.period_type === "quarterly" ? "분기별" : "월별";
+  if (key === "period_type") return PERIOD_TYPE_LABEL[m.period_type] || m.period_type;
   const v = m[key];
   return (v === null || v === undefined || v === "") ? '<span style="color:var(--text-tertiary)">입력된 내용 없음</span>' : escapeHtml(String(v));
 }
@@ -184,7 +184,7 @@ function metricSummaryHtml(m) {
 
   const parts = [`${METRIC_TYPE_LABEL[m.metric_type]}`];
   if (isNumeric) parts.push(ACCUMULATION_LABEL[accumulationOf(m)]);
-  parts.push(m.period_type === "quarterly" ? "분기별" : "월별");
+  parts.push(PERIOD_TYPE_LABEL[m.period_type] || m.period_type);
 
   const targets = [];
   if (isNumeric) {
@@ -392,8 +392,8 @@ async function load() {
           oldDisplay = oldRaw ? escapeHtml(METRIC_TYPE_LABEL[oldRaw]||oldRaw) : "-";
           newDisplay = escapeHtml(METRIC_TYPE_LABEL[newVal] || newVal);
         } else if (key === "period_type") {
-          oldDisplay = oldRaw ? (oldRaw === "quarterly" ? "분기별" : "월별") : "-";
-          newDisplay = newVal === "quarterly" ? "분기별" : "월별";
+          oldDisplay = oldRaw ? (PERIOD_TYPE_LABEL[oldRaw] || oldRaw) : "-";
+          newDisplay = PERIOD_TYPE_LABEL[newVal] || newVal;
         } else {
           oldDisplay = (oldRaw !== null && oldRaw !== undefined && oldRaw !== "") ? escapeHtml(String(oldRaw)) : '<span style="color:var(--text-tertiary)">(없음)</span>';
           newDisplay = escapeHtml(String(newVal));
