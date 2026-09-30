@@ -30,7 +30,10 @@
 
   <div class="flex items-center justify-between mb-6">
     <div>
-      <h1 class="text-[22px] font-bold tracking-tight" style="color:var(--text-primary)">사업계획 대시보드</h1>
+      <h1 class="text-[22px] font-bold tracking-tight flex items-center gap-2 flex-wrap" style="color:var(--text-primary)">
+        <span id="dashboard-company" class="px-2.5 py-0.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-800"></span>
+        <span>사업계획 대시보드</span>
+      </h1>
       <p class="text-[13px]" id="year-subtitle" style="color:var(--text-secondary)"></p>
     </div>
     <div class="flex gap-2">
@@ -136,7 +139,7 @@ const centerTextPlugin = {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   renderNav(PROFILE, "dashboard");
-  document.getElementById("year-subtitle").textContent = `${YEAR}년 · 전체 계열사 SMART 목표 현황`;
+  renderDashboardTitle();
   await loadData();
   render();
   document.getElementById("search-input").addEventListener("input", (e) => {
@@ -144,6 +147,25 @@ const centerTextPlugin = {
     renderGroups();
   });
 })();
+
+// 어느 회사의 대시보드를 보고 있는지 제목에서 바로 드러나게 한다.
+// 역할마다 보이는 범위가 달라서(지주사=전사, 계열사=자사, 사업부=담당 사업부) 부제로 범위도 함께 밝힌다.
+function renderDashboardTitle() {
+  const companyName = (PROFILE.companies && PROFILE.companies.name) || "대교홀딩스";
+  document.getElementById("dashboard-company").textContent = companyName;
+
+  let scope;
+  if (isHoldco(PROFILE)) {
+    scope = "전체 계열사 현황";
+  } else if (isBuStaff(PROFILE)) {
+    const bus = (PROFILE.business_units || []).map(b => b.name).join(", ");
+    scope = bus ? `담당 사업부(${bus}) 현황` : "담당 사업부 현황";
+  } else {
+    scope = "자사 목표 현황";
+  }
+  document.getElementById("year-subtitle").textContent = `${YEAR}년 · ${scope}`;
+  document.title = `${companyName} 사업계획 대시보드 | 대교홀딩스 SMART`;
+}
 
 async function loadData() {
   // 해당 사업연도에 표시 대상이 아닌 계열사·사업부(표시 기간이 지났거나 숨김 처리된 조직)는 집계에서 제외한다
