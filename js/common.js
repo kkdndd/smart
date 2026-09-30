@@ -553,6 +553,21 @@ function goalRefLabel(goal) {
   return `${bu} ${goal.seq_no ?? "-"}번`;
 }
 
+// ---- 목표의 KPI 지표명 ----
+// 목표 한 건의 지표명을 한 줄로 만든다. 화면 어디서나 "전략(목표) / KPI 지표" 구조를 같게 유지하기 위한 공통 함수.
+//  · 지표명은 goal_metrics 에서 가져온다. 기준정보(kpi_definitions)에 연결돼 있으면 그 이름이 우선(이름을 정비하면 전 화면에 즉시 반영)
+//  · goals.indicator_name 은 옛 단일 지표 필드. goal_metrics 가 없는 과거 데이터만 이 값으로 보완한다
+//  · 지표가 전혀 없으면 빈 문자열을 반환한다. Specific 본문 등 다른 내용으로 대체하지 않는다
+function metricNameOf(metric) {
+  if (!metric) return "";
+  return (metric.kpi_definitions && metric.kpi_definitions.name) || metric.metric_name || "";
+}
+function goalMetricNames(goal, metrics) {
+  const names = (metrics || []).map(metricNameOf).filter(Boolean);
+  if (names.length) return names.join(" / ");
+  return (goal && goal.indicator_name) || "";
+}
+
 // ---- 계열사/사업부 표시 기간 ----
 // 해당 연도 조회 화면(대시보드·목표 목록 등)에 이 계열사/사업부를 노출할지 판단한다.
 //  · active_to_year 가 있으면 그 연도까지만 노출 (이후 연도에서는 빠지되 과거 데이터는 그대로 보임)

@@ -28,6 +28,9 @@
 <script src="js/nav.js"></script>
 <script>
 let PROFILE, YEAR = getSelectedYear(), ALL_GOALS = [], SELECTED_GOAL_ID = null;
+// 목표 목록에 KPI 지표명을 함께 보여주기 위한 캐시 (goal_id → "지표A / 지표B")
+let GOAL_METRIC_NAMES = {};
+function goalMetricLabel(g) { return GOAL_METRIC_NAMES[g.id] || g.indicator_name || ""; }
 const params = new URLSearchParams(location.search);
 
 // 지주사 담당자/관리자 화면에서 목표 목록을 회사 순서대로 보여주기 위한 고정 순서
@@ -76,18 +79,29 @@ async function loadGoalOptions() {
     if (an !== bn) return an.localeCompare(bn, "ko");
     return (a.seq_no ?? 0) - (b.seq_no ?? 0);
   });
+
+  // 목록에 표시할 KPI 지표명을 모아둔다 (기준정보에 연결된 지표는 기준정보 이름을 우선 사용)
+  GOAL_METRIC_NAMES = {};
+  const goalIds = ALL_GOALS.map(g => g.id);
+  if (goalIds.length) {
+    const { data: metrics } = await sb.from("goal_metrics")
+      .select("goal_id, metric_name, kpi_definitions:kpi_definition_id(name)").in("goal_id", goalIds);
+    const byGoal = {};
+    (metrics || []).forEach(m => { (byGoal[m.goal_id] = byGoal[m.goal_id] || []).push(m); });
+    ALL_GOALS.forEach(g => { GOAL_METRIC_NAMES[g.id] = goalMetricNames(g, byGoal[g.id]); });
+  }
   renderGoalList();
 }
 
 function renderGoalList() {
   const filter = document.getElementById("goal-filter").value.trim().toLowerCase();
   const filtered = ALL_GOALS.filter(g => !filter ||
-    (g.strategy_name + " " + (g.indicator_name||"") + " " + g.companies.name + " " + (g.business_units?.name||"")).toLowerCase().includes(filter));
+    (g.strategy_name + " " + goalMetricLabel(g) + " " + g.companies.name + " " + (g.business_units?.name||"")).toLowerCase().includes(filter));
   document.getElementById("goal-list").innerHTML = filtered.map(g => `
     <div data-id="${g.id}" class="goal-list-item flex items-center justify-between px-3 py-2 cursor-pointer text-sm ${g.id===SELECTED_GOAL_ID?'bg-[var(--accent-soft)]':'hover:bg-[var(--surface-hover)]'}">
       <div class="min-w-0">
         <span class="font-medium text-slate-800">${isHoldco(PROFILE) ? escapeHtml(g.companies.name) + ' · ' : ''}${g.business_units ? `<span class="text-slate-500">${escapeHtml(g.business_units.name)} · </span>` : ''}${escapeHtml(g.strategy_name)}</span>
-        <span class="text-xs text-slate-400 ml-1">${escapeHtml(g.indicator_name||'')}</span>
+        <span class="text-xs text-slate-400 ml-1">${escapeHtml(goalMetricLabel(g))}</span>
       </div>
       <span class="badge ${STATUS_BADGE_CLASS[g.status]} whitespace-nowrap">${STATUS_LABEL[g.status]}</span>
     </div>`).join("") || `<p class="text-sm text-slate-400 px-3 py-4">해당하는 목표가 없습니다.</p>`;

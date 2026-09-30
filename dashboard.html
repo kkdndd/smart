@@ -190,7 +190,8 @@ async function loadData() {
   const goalIds = ALL_GOALS.map(g => g.id);
   if (goalIds.length === 0) return;
 
-  const { data: metrics } = await sb.from("goal_metrics").select("*").in("goal_id", goalIds);
+  // 지표명은 기준정보(kpi_definitions) 이름을 우선 쓰므로 함께 읽는다
+  const { data: metrics } = await sb.from("goal_metrics").select("*, kpi_definitions:kpi_definition_id(name)").in("goal_id", goalIds);
   ALL_METRICS = metrics || [];
 
   const metricIds = ALL_METRICS.map(m => m.id);
@@ -447,7 +448,7 @@ function renderRiskCards() {
 
 function matchesSearch(g) {
   if (!SEARCH) return true;
-  const hay = [g.companies.name, g.strategy_name, g.indicator_name, g.business_units?.name].join(" ").toLowerCase();
+  const hay = [g.companies.name, g.strategy_name, goalMetricNames(g, goalMetrics(g)), g.business_units?.name].join(" ").toLowerCase();
   return hay.includes(SEARCH);
 }
 
@@ -486,7 +487,7 @@ function renderGroups() {
               <span class="text-[13.5px] font-medium truncate" style="color:var(--text-primary)">${escapeHtml(g.strategy_name)}</span>
               <span class="badge ${STATUS_BADGE_CLASS[g.status]} !text-[10px]">${STATUS_LABEL[g.status]}</span>
             </div>
-            <p class="text-[12px] truncate" style="color:var(--text-secondary)">${escapeHtml(g.indicator_name || g.specific_text || '')}</p>
+            <p class="text-[12px] truncate" style="color:var(--text-secondary)">${escapeHtml(goalMetricNames(g, goalMetrics(g)) || 'KPI 지표 미등록')}</p>
           </div>
           <span class="badge ${rateColorClass(rate)} whitespace-nowrap">${rate===null?'실적없음':rate+'%'}</span>
         </a>`;
@@ -522,7 +523,7 @@ document.getElementById("export-excel").addEventListener("click", () => {
     "회사": g.companies.name, "사업부": g.business_units ? g.business_units.name : "",
     "관리번호": g.seq_no, "전략(목표)": g.strategy_name, "Specific": g.specific_text,
     "Measurable": g.measurable_text, "Achievable": g.achievable_text, "Relevant": g.relevant_text,
-    "Time-bound": g.timebound_text, "지표": g.indicator_name, "상태": STATUS_LABEL[g.status],
+    "Time-bound": g.timebound_text, "KPI 지표": goalMetricNames(g, goalMetrics(g)), "상태": STATUS_LABEL[g.status],
     "달성률(%)": goalRate(g)
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -539,8 +540,8 @@ document.getElementById("export-pdf").addEventListener("click", () => {
   const goals = ALL_GOALS.filter(matchesSearch);
   doc.autoTable({
     startY: 22,
-    head: [["회사", "전략(목표)", "지표", "상태", "달성률"]],
-    body: goals.map(g => [g.companies.name, g.strategy_name, g.indicator_name || "", STATUS_LABEL[g.status], (goalRate(g) ?? "-") + (goalRate(g)!==null?"%":"")]),
+    head: [["회사", "전략(목표)", "KPI 지표", "상태", "달성률"]],
+    body: goals.map(g => [g.companies.name, g.strategy_name, goalMetricNames(g, goalMetrics(g)), STATUS_LABEL[g.status], (goalRate(g) ?? "-") + (goalRate(g)!==null?"%":"")]),
     styles: { font: "helvetica", fontSize: 8 }
   });
   doc.save(`대교홀딩스_사업계획_${YEAR}.pdf`);
