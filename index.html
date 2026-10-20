@@ -26,7 +26,7 @@
           class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
       </div>
       <p id="error-msg" class="text-sm text-red-600 hidden"></p>
-      <button type="submit" class="w-full bg-[#3a4356] text-white rounded-lg py-2 text-sm font-medium hover:bg-[#2c3342]">
+      <button type="submit" class="w-full btn btn-primary !text-sm">
         로그인
       </button>
     </form>
@@ -39,7 +39,10 @@
 
 <script src="js/common.js"></script>
 <script>
-// 초기 비밀번호를 아직 바꾸지 않은 계정은 대시보드 대신 비밀번호 변경 화면으로 보낸다
+// 로그인 후에는 대시보드로 보낸다.
+// 이 시스템의 목적은 현황을 보고 관리하는 것이고, 입력은 그다음이다.
+// 대신 대시보드 맨 위에 '나의 할 일' 띠를 둬서, 처리할 일이 있으면 바로 눈에 띄게 한다.
+// 초기 비밀번호를 아직 바꾸지 않은 계정은 비밀번호 변경이 먼저다.
 async function goAfterLogin(userId) {
   const { data: profile } = await sb.from("profiles").select("must_change_password").eq("id", userId).single();
   window.location.href = (profile && profile.must_change_password) ? "password.html" : "dashboard.html";
@@ -74,12 +77,12 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 
 document.getElementById("reset-btn").addEventListener("click", async () => {
   const email = document.getElementById("email").value.trim();
-  if (!email) { alert("이메일을 먼저 입력해주세요."); return; }
+  if (!email) { toastError("이메일을 먼저 입력해주세요."); return; }
   const { error } = await sb.auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin + window.location.pathname.replace("index.html","") + "reset-password.html"
   });
-  if (error) alert("오류: " + error.message);
-  else alert("비밀번호 재설정 이메일을 발송했습니다.");
+  if (error) toastError("오류: " + error.message);
+  else toastOk("비밀번호 재설정 이메일을 발송했습니다.");
 });
 </script>
 </body>

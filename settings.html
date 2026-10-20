@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>설정 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
+<script src="js/config.js"></script>
+</head>
+<body class="min-h-screen">
+<div id="nav-root"></div>
+
+<div class="max-w-3xl mx-auto px-4 py-7">
+  <div class="mb-5">
+    <h1 class="page-title">설정</h1>
+    <p class="page-sub">일 년에 몇 번만 쓰는 기준정보 화면을 여기에 모았습니다.</p>
+  </div>
+  <div id="cards"></div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE;
+
+// 설정 화면 목록. 권한에 따라 보이는 항목이 달라진다.
+const SETTINGS_ITEMS = [
+  { href: "business-units.html", title: "사업부 관리",
+    desc: "사업부를 등록·수정하고, 더 이상 쓰지 않는 사업부를 숨깁니다. 중복 등록은 자동으로 막힙니다.",
+    show: p => canManageBusinessUnits(p) },
+  { href: "kpi.html", title: "KPI 기준정보",
+    desc: "지표 이름·단위·방향을 관리합니다. 여기서 이름을 고치면 모든 화면과 지난 연도 비교에 그대로 반영됩니다.",
+    show: p => canManageBusinessUnits(p) },
+  { href: "companies.html", title: "계열사 관리",
+    desc: "계열사를 등록하고 표시 기간을 정합니다. 숨긴 계열사의 과거 데이터는 그대로 남습니다.",
+    show: p => isHoldcoEditor(p) },
+  { href: "admin.html", title: "계정 관리",
+    desc: "계정을 만들고 역할과 담당 사업부를 배정합니다. 초기 비밀번호 변경을 요구할 수도 있습니다.",
+    show: p => isHoldcoEditor(p) },
+  { href: "process-map.html", title: "업무 흐름 안내",
+    desc: "작성부터 확정까지의 결재 흐름을 그림으로 설명합니다. 처음 쓰는 분에게 공유하기 좋습니다.",
+    show: () => true },
+  { href: "password.html", title: "내 비밀번호 변경",
+    desc: "본인 계정의 비밀번호를 바꿉니다.",
+    show: () => true }
+];
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "settings");
+
+  const items = SETTINGS_ITEMS.filter(i => i.show(PROFILE));
+  document.getElementById("cards").innerHTML = items.map(i => `
+    <a href="${i.href}" class="task-card">
+      <span class="task-body">
+        <span class="task-title block">${escapeHtml(i.title)}</span>
+        <span class="task-sub block">${escapeHtml(i.desc)}</span>
+      </span>
+      <span class="task-cta text-[13px]" style="color:var(--text-tertiary)">›</span>
+    </a>`).join("");
+})();
+</script>
+</body>
+</html>

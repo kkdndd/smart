@@ -12,7 +12,7 @@
 <body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-6xl mx-auto px-4 py-6 space-y-4">
-  <h1 class="text-lg font-bold text-slate-800">계정 관리</h1>
+  <h1 class="page-title">계정 관리</h1>
   <p class="text-xs text-slate-500">
     새 계정은 Supabase 대시보드(Authentication → Users → Invite user)에서 @daekyo.co.kr 이메일로 초대해야 합니다.
     초대된 계정은 아래 목록에 자동으로 나타나며, 여기서 소속 계열사·역할·담당 사업부를 지정하세요.
@@ -57,7 +57,7 @@ let PROFILE, COMPANIES = [], BUS_BY_COMPANY = {}, PROFILES = [], ASSIGNED = {};
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   if (!isHoldcoEditor(PROFILE)) { document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return; }
-  renderNav(PROFILE, "admin");
+  renderNav(PROFILE, "settings");
 
   const { data: companies } = await sb.from("companies").select("*").order("is_holding", { ascending: false }).order("name");
   COMPANIES = companies || [];
@@ -128,13 +128,13 @@ function render() {
       <td class="py-2 px-3"><div class="bu-cell"></div></td>
       <td class="py-2 px-3 whitespace-nowrap">
         ${p.must_change_password
-          ? `<span class="badge bg-[#faf1de] text-[#b9821f]">변경 요구중</span>
+          ? `<span class="badge badge-average">변경 요구중</span>
              <button onclick="setPasswordRequirement('${p.id}', false)" class="block text-[11px] text-slate-500 underline mt-1">요구 해제</button>`
-          : `<span class="badge bg-[#e7f5ec] text-[#2f9e5b]">사용중</span>
+          : `<span class="badge badge-on">사용중</span>
              <button onclick="setPasswordRequirement('${p.id}', true)" class="block text-[11px] text-slate-500 underline mt-1">변경 요구</button>
              ${p.password_changed_at ? `<span class="block text-[10px] text-slate-300 mt-0.5">${new Date(p.password_changed_at).toLocaleDateString('ko-KR')} 변경</span>` : ''}`}
       </td>
-      <td class="py-2 px-3 whitespace-nowrap"><button class="save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1">저장</button></td>
+      <td class="py-2 px-3 whitespace-nowrap"><button class="save-btn btn btn-primary !text-xs !px-3 !py-1">저장</button></td>
     </tr>`).join("") || `<tr><td colspan="7" class="py-8 text-center text-slate-400 text-sm">조건에 맞는 계정이 없습니다.</td></tr>`;
 
   document.querySelectorAll("#rows tr[data-id]").forEach(tr => {
@@ -176,7 +176,7 @@ function renderBuCell(tr) {
 async function setPasswordRequirement(id, required) {
   if (required && !confirm("이 계정이 다음 로그인 시 비밀번호를 반드시 변경하도록 요구할까요?\n(Supabase 대시보드에서 초기 비밀번호를 재발급한 뒤 사용하세요)")) return;
   const { error } = await sb.from("profiles").update({ must_change_password: required }).eq("id", id);
-  if (error) { alert("변경 실패: " + error.message); return; }
+  if (error) { toastError("변경 실패: " + error.message); return; }
   const target = PROFILES.find(p => p.id === id);
   if (target) target.must_change_password = required;
   render();
@@ -189,11 +189,11 @@ async function saveRow(tr) {
   const role = tr.querySelector(".role-select").value;
   const checked = [...tr.querySelectorAll(".bu-check")].filter(c => c.checked).map(c => c.value);
 
-  if (role === "bu_staff" && !company_id) { alert("사업부 담당자는 소속 계열사를 지정해야 합니다."); return; }
-  if (role === "bu_staff" && checked.length === 0) { alert("담당 사업부를 하나 이상 선택해주세요."); return; }
+  if (role === "bu_staff" && !company_id) { toastError("사업부 담당자는 소속 계열사를 지정해야 합니다."); return; }
+  if (role === "bu_staff" && checked.length === 0) { toastError("담당 사업부를 하나 이상 선택해주세요."); return; }
 
   const { error } = await sb.from("profiles").update({ name, company_id, role }).eq("id", id);
-  if (error) { alert("저장 실패: " + error.message); return; }
+  if (error) { toastError("저장 실패: " + error.message); return; }
 
   // 사업부 배정 동기화: 체크 해제된 것은 삭제, 새로 체크된 것만 추가
   const before = ASSIGNED[id] || [];
@@ -203,14 +203,14 @@ async function saveRow(tr) {
 
   if (toRemove.length) {
     const { error: e1 } = await sb.from("profile_business_units").delete().eq("profile_id", id).in("business_unit_id", toRemove);
-    if (e1) { alert("사업부 배정 해제 실패: " + e1.message); return; }
+    if (e1) { toastError("사업부 배정 해제 실패: " + e1.message); return; }
   }
   if (toAdd.length) {
     const { error: e2 } = await sb.from("profile_business_units").insert(toAdd.map(b => ({ profile_id: id, business_unit_id: b })));
-    if (e2) { alert("사업부 배정 실패: " + e2.message); return; }
+    if (e2) { toastError("사업부 배정 실패: " + e2.message); return; }
   }
   ASSIGNED[id] = target;
-  alert("저장되었습니다.");
+  toastOk("저장되었습니다.");
 }
 </script>
 </body>

@@ -12,38 +12,36 @@
 <body class="min-h-screen">
 <div id="nav-root"></div>
 <div class="max-w-6xl mx-auto px-4 py-6">
-  <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
-    <div class="flex items-center gap-2 flex-wrap">
-      <h1 class="text-lg font-bold text-slate-800" id="page-title"></h1>
-      <div id="company-filter" class="hidden items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg pl-3 pr-2 py-1">
-        <label for="company-select" class="text-xs font-semibold text-amber-700 whitespace-nowrap">회사</label>
-        <select id="company-select" class="border border-amber-300 rounded px-2 py-1 text-sm font-semibold text-amber-800 bg-white"></select>
-      </div>
-      <div id="bu-filter" class="hidden items-center gap-2 bg-slate-50 border border-slate-300 rounded-lg pl-3 pr-2 py-1">
-        <label for="bu-select" class="text-xs font-semibold text-slate-500 whitespace-nowrap">사업부</label>
-        <select id="bu-select" class="border border-slate-300 rounded px-2 py-1 text-sm font-medium text-slate-700 bg-white"></select>
-      </div>
-      <div id="author-filter" class="hidden items-center gap-2 bg-slate-50 border border-slate-300 rounded-lg pl-3 pr-2 py-1">
-        <label for="author-select" class="text-xs font-semibold text-slate-500 whitespace-nowrap">작성자</label>
-        <select id="author-select" class="border border-slate-300 rounded px-2 py-1 text-sm font-medium text-slate-700 bg-white"></select>
-      </div>
+  <div class="flex items-start justify-between mb-4 gap-3 flex-wrap">
+    <div>
+      <h1 class="page-title" id="page-title"></h1>
+      <p class="page-sub" id="page-sub"></p>
     </div>
     <div class="flex items-center gap-2">
-      <button id="copy-prev-btn" class="hidden bg-white border border-slate-300 text-slate-700 text-sm rounded px-3 py-2 hover:bg-slate-100 whitespace-nowrap">작년 목표 불러오기</button>
-      <button id="new-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342]">+ 새 목표 작성</button>
+      <button id="copy-prev-btn" class="btn btn-secondary !text-[13px] hidden whitespace-nowrap">작년 목표 불러오기</button>
+      <button id="new-btn" class="btn btn-primary !text-[13px]">+ 새 목표 작성</button>
     </div>
   </div>
-  <div class="card overflow-x-auto">
-    <table class="w-full">
+
+  <!-- 보는 범위를 좁히는 필터는 화면 위에 고정한다 (다른 화면으로 옮겨가도 유지됨) -->
+  <div id="filter-bar"></div>
+
+  <!-- 검토·변경요청을 따로 찾아다니지 않도록 같은 화면의 탭으로 묶는다 -->
+  <div class="tabs" id="tabs"></div>
+
+  <div id="empty-root"></div>
+  <div class="card overflow-x-auto" id="table-wrap">
+    <!-- 열 너비를 고정한다. 자동 폭에 맡기면 상태 칸의 안내 문구 길이에 따라 표가 매번 달라진다 -->
+    <table class="w-full table-fixed" style="min-width:860px">
+      <colgroup id="cols"></colgroup>
       <thead><tr class="text-left text-xs text-slate-400 border-b border-slate-200">
-        <th class="py-2 px-3 whitespace-nowrap">사업부</th>
-        <th class="py-2 px-3 whitespace-nowrap">#</th>
+        <!-- 회사는 열이 아니라 '구분 행'으로 보여준다 (아래 companyGroupRowHtml 주석 참고) -->
+        <th class="py-2 px-3">사업부</th>
+        <th class="py-2 px-3">#</th>
         <th class="py-2 px-3">전략(목표)</th>
         <th class="py-2 px-3">핵심지표 · 목표값</th>
-        <th class="py-2 px-3">S · 무엇을 / M · 어떻게 측정</th>
-        <th class="py-2 px-3 whitespace-nowrap">상태</th>
-        <th class="py-2 px-3 whitespace-nowrap">작성자</th>
-        <th class="py-2 px-3">최근 검토 의견</th>
+        <th class="py-2 px-3">상태</th>
+        <th class="py-2 px-3">작성자</th>
         <th class="py-2 px-3"></th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -53,67 +51,75 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, COMPANIES = [], SELECTED_COMPANY_ID = null, SELECTED_BU_ID = "", SELECTED_AUTHOR_ID = "";
+let PROFILE, SELECTED_AUTHOR_ID = "";
+const PARAMS = new URLSearchParams(location.search);
+// 탭: 지금 내가 봐야 할 것부터 왼쪽에 둔다
+let TAB = PARAMS.get("tab") || "mine";
+if (TAB === "fix") TAB = "mine"; // '나의 할 일'의 수정요청 카드에서 들어오는 경우
+
+// 회사·사업부는 전역 필터에서 읽는다 (현황에서 숫자를 눌러 들어와도 그 범위가 유지된다)
+// 지주사는 '전체 회사'(빈 값)를 고를 수 있고, 그때는 회사 열이 함께 나온다.
+function selectedCompanyId() { return getFilter().companyId || (isHoldco(PROFILE) ? "" : PROFILE.company_id); }
+function selectedBuId() { return getFilter().buId || ""; }
+function showingAllCompanies() { return isHoldco(PROFILE) && !selectedCompanyId(); }
+
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
-  renderNav(PROFILE, "goals");
-  document.getElementById("page-title").textContent = `${getSelectedYear()}년 사업계획 목표`;
+  renderNav(PROFILE, "plan");
+  // 경영진은 결재에 끼지 않으므로 '내 차례'가 늘 비어 있다. 전체부터 보여준다.
+  if (PROFILE.role === "holdco_exec" && !PARAMS.get("tab")) TAB = "all";
+  document.getElementById("page-title").textContent = `${getSelectedYear()}년 사업계획`;
   document.getElementById("new-btn").classList.toggle("hidden", !canWriteGoals(PROFILE));
   document.getElementById("copy-prev-btn").classList.toggle("hidden", !canWriteGoals(PROFILE));
 
-  if (isHoldco(PROFILE)) {
-    // 지주사 담당자/경영진은 특정 회사에 소속되지 않으므로, 계열사를 드롭다운으로 골라서 조회한다
-    const { data: companies } = await sb.from("companies").select("*").order("is_holding", { ascending: false }).order("name");
-    // 선택한 사업연도에 표시 대상인 계열사만 목록에 올린다 (표시 기간이 지난 계열사는 그 이후 연도에서 제외)
-    COMPANIES = (companies || []).filter(c => isVisibleInYear(c, getSelectedYear()));
-    SELECTED_COMPANY_ID = COMPANIES[0] ? COMPANIES[0].id : null;
-    const sel = document.getElementById("company-select");
-    sel.innerHTML = COMPANIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-    sel.addEventListener("change", async () => {
-      SELECTED_COMPANY_ID = sel.value;
-      SELECTED_BU_ID = ""; SELECTED_AUTHOR_ID = ""; // 회사가 바뀌면 하위 필터는 초기화
-      await loadBuFilter();
-      loadGoals();
-    });
-    showFilter("company-filter");
-  } else {
-    SELECTED_COMPANY_ID = PROFILE.company_id;
-  }
+  applyFilterFromUrl(); // 드릴다운으로 넘어온 ?company= / ?bu= 반영
+  await renderFilterBar({
+    root: document.getElementById("filter-bar"),
+    profile: PROFILE, year: getSelectedYear(),
+    fields: ["company", "bu"], allowAll: true,
+    extraHtml: `<label class="filter-item"><span class="filter-label">작성자</span>
+        <select id="author-select" class="filter-select"></select></label>`,
+    onChange: () => { SELECTED_AUTHOR_ID = ""; loadGoals(); }
+  });
 
-  await loadBuFilter();
   await loadGoals();
+
+  // 홈의 "작년 목표 불러오기"로 들어오면 바로 그 동작부터 시작한다
+  if (PARAMS.get("action") === "carryover" && canWriteGoals(PROFILE)) copyPreviousYearGoals();
 })();
 
-function showFilter(id) {
-  const el = document.getElementById(id);
-  el.classList.remove("hidden");
-  el.classList.add("flex");
-}
+// 탭마다 어떤 목표를 보여줄지 한 곳에서 정의한다
+const TAB_DEFS = [
+  { key: "mine",     label: "내 차례",  urgent: true,  match: g => isMyTurn(PROFILE, g) && g.status !== "draft" },
+  { key: "draft",    label: "작성 중",  match: g => g.status === "draft" },
+  { key: "waiting",  label: "검토 중",  match: g => g.status === "submitted" || g.status === "company_approved" },
+  { key: "approved", label: "확정",     match: g => g.status === "approved" || g.status === "locked" },
+  { key: "all",      label: "전체",     match: () => true }
+];
 
-// 사업부 필터: 계열사·지주사 담당자는 회사 전체 사업부 중에서, 겸직 중인 사업부 담당자는 본인 담당 사업부 중에서 고른다
-async function loadBuFilter() {
-  const sel = document.getElementById("bu-select");
-  let options = [];
-  if (isBuStaff(PROFILE)) {
-    if ((PROFILE.business_units || []).length < 2) return; // 담당 사업부가 하나뿐이면 필터가 불필요
-    options = [...PROFILE.business_units].sort((a, b) => a.name.localeCompare(b.name, "ko"));
-  } else {
-    if (!SELECTED_COMPANY_ID) return;
-    const { data } = await sb.from("business_units")
-      .select("id,name,is_active,active_from_year,active_to_year")
-      .eq("company_id", SELECTED_COMPANY_ID).order("name");
-    options = (data || []).filter(b => isVisibleInYear(b, getSelectedYear()));
-  }
-  sel.innerHTML = `<option value="">전체 사업부</option>` + options.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
-  sel.value = SELECTED_BU_ID;
-  sel.onchange = () => { SELECTED_BU_ID = sel.value; loadGoals(); };
-  showFilter("bu-filter");
+function renderTabs(goals) {
+  const root = document.getElementById("tabs");
+  root.innerHTML = TAB_DEFS.map(t => {
+    const n = goals.filter(t.match).length;
+    const urgent = t.urgent && n > 0;
+    return `<button type="button" class="tab ${TAB === t.key ? 'active' : ''} ${urgent ? 'urgent' : ''}" data-tab="${t.key}">
+      ${t.label}<span class="count">${n}</span>
+    </button>`;
+  }).join("")
+  + `<a href="change-requests.html" class="tab">변경요청</a>`;
+
+  root.querySelectorAll("button.tab").forEach(b => b.addEventListener("click", () => {
+    TAB = b.dataset.tab;
+    history.replaceState(null, "", `goals.html?tab=${TAB}`);
+    loadGoals();
+  }));
 }
 
 // 작성자 필터는 실제로 목표를 작성한 사람만 선택지로 올린다 (건수까지 보여줘 누가 얼마나 올렸는지 바로 보이게)
 function renderAuthorFilter(goals) {
   const sel = document.getElementById("author-select");
+  if (!sel) return;
   const byId = {};
   let unknown = 0;
   goals.forEach(g => {
@@ -132,10 +138,22 @@ function renderAuthorFilter(goals) {
   if (SELECTED_AUTHOR_ID && !sel.querySelector(`option[value="${SELECTED_AUTHOR_ID}"]`)) SELECTED_AUTHOR_ID = "";
   sel.value = SELECTED_AUTHOR_ID;
   sel.onchange = () => { SELECTED_AUTHOR_ID = sel.value; loadGoals(); };
-  showFilter("author-filter");
 }
 
 document.getElementById("new-btn").addEventListener("click", () => window.location.href = "goal-form.html");
+
+// 전략 이름 옆 펼침 단추 — 행 전체를 누르면 상세로 가므로, 이 단추는 전파를 막는다
+function toggleSmart(e, goalId) {
+  e.stopPropagation();
+  const row = document.getElementById("smart-row-" + goalId);
+  const btn = document.getElementById("smart-btn-" + goalId);
+  if (!row || !btn) return;
+  const open = row.hidden;
+  row.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+  btn.classList.toggle("open", open);
+  btn.title = open ? "SMART 내용 접기" : "SMART 내용 펼치기";
+}
 
 // 임시저장 목표 삭제 (목록에서 바로)
 let LOADED_GOALS = [];
@@ -149,27 +167,28 @@ document.getElementById("copy-prev-btn").addEventListener("click", copyPreviousY
 // 작년에 쓰던 전략·지표를 그대로 복사해 올해 초안을 만든다.
 // 지표는 KPI 기준정보에 연결된 채로 넘어오므로, 매년 이름을 다시 타이핑할 필요가 없고 전년 비교도 유지된다.
 async function copyPreviousYearGoals() {
+  if (showingAllCompanies()) { toastError("먼저 위쪽 '회사' 필터에서 복사할 계열사를 골라주세요."); return; }
   const year = getSelectedYear();
   const prevYear = year - 1;
-  if (!confirm(`${prevYear}년 목표를 ${year}년으로 복사할까요?\n\n전략·SMART 내용·지표 구성은 그대로 가져오고, 기준값과 목표값은 비운 상태로 [임시저장]됩니다.\n이미 같은 전략이 등록된 사업부는 건너뜁니다.`)) return;
+  if (!confirm(`${prevYear}년 목표를 ${year}년으로 복사할까요?\n\n전략·SMART 내용·지표 구성을 그대로 가져오고, 작년 목표값은 올해 '시작값'으로 옮겨둡니다.\n올해 목표값만 채우면 되며, [작성 중] 상태로 만들어집니다.\n이미 같은 전략이 등록된 사업부는 건너뜁니다.`)) return;
 
   const btn = document.getElementById("copy-prev-btn");
   btn.disabled = true; btn.textContent = "불러오는 중...";
   try {
-    let prevQ = sb.from("goals").select("*, goal_metrics(*)").eq("year", prevYear).eq("company_id", SELECTED_COMPANY_ID || "___none___");
+    let prevQ = sb.from("goals").select("*, goal_metrics(*)").eq("year", prevYear).eq("company_id", selectedCompanyId() || "___none___");
     const { data: prevGoals, error } = await prevQ;
-    if (error) { alert("작년 목표를 불러오지 못했습니다: " + error.message); return; }
-    if (!prevGoals || !prevGoals.length) { alert(`${prevYear}년에 등록된 목표가 없습니다.`); return; }
+    if (error) { toastError("작년 목표를 불러오지 못했습니다: " + error.message); return; }
+    if (!prevGoals || !prevGoals.length) { toastError(`${prevYear}년에 등록된 목표가 없습니다.`); return; }
 
     // 사업부 담당자는 담당 사업부 것만 복사한다
     const source = isBuStaff(PROFILE)
       ? prevGoals.filter(g => g.business_unit_id && PROFILE.business_unit_ids.includes(g.business_unit_id))
       : prevGoals;
-    if (!source.length) { alert(`${prevYear}년에 담당 사업부의 목표가 없습니다.`); return; }
+    if (!source.length) { toastError(`${prevYear}년에 담당 사업부의 목표가 없습니다.`); return; }
 
     // 올해 이미 있는 전략은 중복 복사하지 않는다
     const { data: thisYear } = await sb.from("goals").select("business_unit_id, strategy_name")
-      .eq("year", year).eq("company_id", SELECTED_COMPANY_ID || "___none___");
+      .eq("year", year).eq("company_id", selectedCompanyId() || "___none___");
     const existing = new Set((thisYear || []).map(g => `${g.business_unit_id || ""}|${g.strategy_name}`));
 
     let copied = 0, skipped = 0;
@@ -182,21 +201,24 @@ async function copyPreviousYearGoals() {
         follow_up_action: g.follow_up_action, remarks: g.remarks,
         status: "draft", created_by: PROFILE.id
       }).select("id").single();
-      if (insErr) { alert("복사 실패: " + insErr.message); break; }
+      if (insErr) { toastError("복사 실패: " + insErr.message); break; }
 
       const metrics = (g.goal_metrics || []).map(m => ({
         goal_id: newGoal.id, kpi_definition_id: m.kpi_definition_id,
-        metric_name: m.metric_name, metric_type: m.metric_type, unit: m.unit, period_type: m.period_type,
-        baseline_value: null, target_value: null // 올해 목표는 새로 정해야 하므로 비워둔다
+        metric_name: m.metric_name, metric_type: m.metric_type, unit: m.unit,
+        period_type: m.period_type, accumulation: m.accumulation,
+        // 작년 목표값을 올해 시작값으로 옮겨둔다 (출발점이 채워진 채로 시작하게)
+        baseline_value: m.target_value ?? null,
+        target_value: null // 올해 목표는 새로 정해야 하므로 비워둔다
       }));
       if (metrics.length) {
         const { error: mErr } = await sb.from("goal_metrics").insert(metrics);
-        if (mErr) { alert("지표 복사 실패: " + mErr.message); break; }
+        if (mErr) { toastError("지표 복사 실패: " + mErr.message); break; }
       }
       copied++;
     }
 
-    alert(`${copied}건을 ${year}년 임시저장으로 복사했습니다.${skipped ? `\n(이미 등록된 전략 ${skipped}건은 건너뜀)` : ""}\n\n각 목표를 열어 기준값·목표값을 입력해주세요.`);
+    toastOk(`${copied}건을 ${year}년 [작성 중]으로 복사했습니다.${skipped ? `\n(이미 등록된 전략 ${skipped}건은 건너뜀)` : ""}\n\n각 목표를 열어 올해 목표값만 채우면 됩니다.`);
     await loadGoals();
   } finally {
     btn.disabled = false; btn.textContent = "작년 목표 불러오기";
@@ -205,24 +227,72 @@ async function copyPreviousYearGoals() {
 
 async function loadGoals() {
   // 사업부·작성자 필터는 화면에서 거른다. 서버에서 걸러버리면 작성자 목록이 선택에 따라 들쭉날쭉해진다.
-  const { data: rawGoals, error } = await sb.from("goals")
-    .select("*, business_units:business_unit_id(name), creator:created_by(name,email)")
-    .eq("year", getSelectedYear())
-    .eq("company_id", SELECTED_COMPANY_ID || "___none___");
+  let q = sb.from("goals")
+    .select("*, companies:company_id(name), business_units:business_unit_id(name), creator:created_by(name,email)")
+    .eq("year", getSelectedYear());
+  // '전체 회사'가 아니면 그 회사만 (소속 담당자는 RLS로도 자기 회사만 보인다)
+  if (!showingAllCompanies()) q = q.eq("company_id", selectedCompanyId() || "___none___");
+  const { data: rawGoals, error } = await q;
   if (error) { console.error(error); return; }
+
+  // 전체 회사를 볼 때는 회사 이름을 '열'이 아니라 '구분 행'으로 보여준다 (companyGroupRowHtml 참고)
+  const showCompany = showingAllCompanies();
+
+  // 열 너비(%) — 읽어야 할 내용(전략·지표)에 폭을 몰아준다.
+  // 상태는 배지와 한 줄 안내만 들어가므로 좁혀도 된다.
+  // 회사 열이 사라지면서 전체 회사를 볼 때도 폭 배분이 같아졌다.
+  document.getElementById("cols").innerHTML =
+    ["11%", "4%", "27%", "28%", "14%", "8%", "8%"]
+      .map(w => `<col style="width:${w}">`).join("");
 
   const allGoals = rawGoals || [];
   renderAuthorFilter(allGoals);
+  renderTabs(allGoals);
+
+  // '내 차례' 탭이 비어 있으면 전체를 보여준다 (빈 화면으로 맞이하지 않기 위해)
+  if (TAB === "mine" && !allGoals.some(g => isMyTurn(PROFILE, g) && g.status !== "draft")) {
+    TAB = allGoals.some(g => g.status === "draft") ? "draft" : "all";
+    renderTabs(allGoals);
+  }
+  const tabDef = TAB_DEFS.find(t => t.key === TAB) || TAB_DEFS[TAB_DEFS.length - 1];
 
   const filtered = allGoals.filter(g => {
-    if (SELECTED_BU_ID && g.business_unit_id !== SELECTED_BU_ID) return false;
+    if (!tabDef.match(g)) return false;
+    if (selectedBuId() && g.business_unit_id !== selectedBuId()) return false;
     if (SELECTED_AUTHOR_ID === "__none__") return !g.created_by;
     if (SELECTED_AUTHOR_ID) return g.created_by === SELECTED_AUTHOR_ID;
     return true;
   });
 
+  // 목표가 아예 없는 사람에게는 표 대신 시작 방법을 보여준다
+  const emptyRoot = document.getElementById("empty-root");
+  const tableWrap = document.getElementById("table-wrap");
+  if (!allGoals.length) {
+    tableWrap.hidden = true;
+    emptyRoot.innerHTML = emptyStateHtml(
+      `${getSelectedYear()}년 사업계획이 아직 없습니다`,
+      "작년 목표를 불러오면 지표와 시작값이 채워진 채로 시작할 수 있어 가장 빠릅니다.",
+      canWriteGoals(PROFILE) ? [
+        { label: "작년 목표 불러오기", href: "goals.html?action=carryover", primary: true },
+        { label: "새로 쓰기", href: "goal-form.html" }
+      ] : []
+    );
+    return;
+  }
+  tableWrap.hidden = false;
+  emptyRoot.innerHTML = "";
+
   // 관리번호가 사업부별로 1번부터 매겨지므로, 사업부로 묶은 뒤 번호 순으로 보여준다
-  const goals = sortGoalsByBusinessUnit(filtered);
+  // 전체 회사를 볼 때는 회사 → 사업부 → 번호 순
+  const goals = showCompany
+    ? [...filtered].sort((a, b) => {
+        const ac = a.companies ? a.companies.name : "", bc = b.companies ? b.companies.name : "";
+        if (ac !== bc) return ac.localeCompare(bc, "ko");
+        const an = a.business_units ? a.business_units.name : "", bn = b.business_units ? b.business_units.name : "";
+        if (an !== bn) return an.localeCompare(bn, "ko");
+        return (a.seq_no ?? 0) - (b.seq_no ?? 0);
+      })
+    : sortGoalsByBusinessUnit(filtered);
   LOADED_GOALS = goals; // 삭제 시 대상 목표를 찾기 위해 보관
 
   const goalIds = (goals||[]).map(g=>g.id);
@@ -273,20 +343,126 @@ async function loadGoals() {
     }).join("");
   };
 
-  // S/M 셀: 두 항목을 라벨과 함께 위아래로 (열을 나누면 둘 다 잘려서 한 칸에 묶음)
-  const smCellHtml = (g) => {
-    const line = (label, bg, fg, text) => `<div class="flex gap-1.5 mb-1 last:mb-0">
-      <span class="shrink-0 px-1 rounded text-[10px] font-semibold h-fit" style="background:${bg};color:${fg}">${label}</span>
-      <span class="line-clamp-2">${nl2br(text) || '<span class="text-slate-300">-</span>'}</span>
-    </div>`;
-    return line("S", "#EEF0F4", "#3A4356", g.specific_text) + line("M", "#EAF0F8", "#4C6FA5", g.measurable_text);
+  // 작성 중인 목표는 "제출하려면 무엇이 더 필요한지"를 상태 옆에 적어준다.
+  // 목록에서 바로 알 수 있어야, 열어보고 나서야 빈 칸을 발견하는 일이 없다.
+  const readinessHtml = (goal, byGoal, ptCount) => {
+    if (goal.status !== "draft") return "";
+    const r = submitReadiness(goal, byGoal[goal.id] || [], ptCount);
+    if (r.ok) return `<div class="text-[10.5px] mt-1" style="color:var(--green)">제출 가능</div>`;
+    const first = r.missing[0];
+    const more = r.missing.length > 1 ? ` 외 ${r.missing.length - 1}건` : "";
+    return `<div class="text-[10.5px] mt-1" style="color:var(--amber)" title="${escapeHtml(r.missing.join(", "))}">${escapeHtml(first)}${more} 필요</div>`;
   };
 
-  let prevBu = null, prevStrategy = null;
+  // SMART 본문은 표에서 열을 차지하지 않되, 마우스를 올려 띄우는 방식도 쓰지 않는다.
+  //  · 표가 가로 스크롤 영역(overflow-x-auto) 안에 있어 떠오른 카드가 경계에서 잘린다
+  //  · 마우스를 떼면 사라지므로 내용을 읽는 동안 긴장해야 하고, 글자를 선택해 복사할 수도 없다
+  //  · 그런 기능이 있다는 것 자체를 알아챌 방법이 없다
+  // 대신 전략 이름 옆에 펼침 단추를 두고, 누르면 아래에 한 행이 열리게 한다.
+  const smartFieldsOf = (g) => SMART_FIELDS.filter(f => g[f.key] && String(g[f.key]).trim());
+
+  // showStrategy=false 인 행은 바로 위와 전략 이름이 같아 〃로 줄여 보여준다.
+  // 그래도 **다른 목표**이므로 SMART 내용은 따로 있다. 이름을 줄였다고 펼침 단추까지 빼면
+  // 그 행만 내용을 볼 수 없게 되므로, 단추는 그대로 두고 이름 자리에 〃를 넣는다.
+  // 펼침 단추는 **모든 행에 똑같이** 있다. 내용이 있든 없든, 이름이 〃로 줄었든 상관없다.
+  // 어떤 행은 열리고 어떤 행은 안 열리면, 안 열리는 행을 고장으로 받아들이게 된다.
+  const strategyCellHtml = (g, showStrategy) => {
+    const label = showStrategy
+      ? escapeHtml(g.strategy_name)
+      : `<span class="text-slate-300">〃</span>`;
+    return `<button type="button" class="smart-toggle" id="smart-btn-${g.id}" aria-expanded="false"
+        aria-controls="smart-row-${g.id}" onclick="toggleSmart(event,'${g.id}')"
+        title="${escapeHtml(g.strategy_name)} — SMART 내용 펼치기">
+        <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6"/></svg>
+        <span>${label}</span>
+      </button>`;
+  };
+
+  // 검토 의견은 전용 열을 두지 않는다.
+  // 대부분의 행에서 비어 있어 넓은 열이 낭비되는 반면, 정작 필요한 때는 딱 하나다 —
+  // 내가 고쳐서 다시 내야 하는 '수정 요청됨' 상태. 그 경우에만 상태 아래에 붙인다.
+  // (나머지 상태의 의견은 펼침 패널과 목표 상세에서 볼 수 있다)
+  const revisionNoteHtml = (goal, review) => {
+    if (goal.status !== "revision_requested" || !review || !review.comment) return "";
+    return `<div class="text-[10.5px] mt-1.5 leading-snug" style="color:var(--amber)">
+      <span class="line-clamp-3">${escapeHtml(review.comment)}</span>
+    </div>`;
+  };
+
+  // 펼쳤을 때 아래에 끼워 넣는 행. 표 안쪽이라 폭이 넉넉하고 글자를 선택할 수 있다.
+  const smartRowHtml = (g, colCount, review) => {
+    const filled = smartFieldsOf(g);
+    const extra = [
+      g.follow_up_action && String(g.follow_up_action).trim() ? { label: "후속조치", value: g.follow_up_action } : null,
+      g.remarks && String(g.remarks).trim() ? { label: "비고", value: g.remarks } : null,
+      // 검토 의견은 전용 열에서 뺐으므로 여기서 모든 상태의 목표에 대해 볼 수 있게 한다
+      review && review.comment ? {
+        label: `검토 의견 (${REVIEW_ACTION_LABEL[review.action] || review.action})`,
+        value: review.comment
+      } : null
+    ].filter(Boolean);
+
+    // 비어 있을 때도 행을 만든다. 무엇이 비었는지 알려주는 편이, 아무 반응이 없는 것보다 낫다.
+    const body = (filled.length || extra.length)
+      ? `<dl class="smart-list">
+          ${filled.map(f => `<div>
+            <dt>${smartLabelHtml(f)}</dt>
+            <dd>${textBlockHtml(g[f.key])}</dd>
+          </div>`).join("")}
+          ${extra.map(x => `<div>
+            <dt><span class="letter-badge">·</span>${escapeHtml(x.label)}</dt>
+            <dd>${textBlockHtml(x.value)}</dd>
+          </div>`).join("")}
+        </dl>`
+      : `<p class="text-[12.5px]" style="color:var(--text-tertiary)">SMART 내용이 아직 비어 있습니다.${
+          canEditGoal(PROFILE, g) ? ` <a href="goal-form.html?id=${g.id}" class="smart-more !mt-0">작성하기 ›</a>` : ""
+        }</p>`;
+
+    return `<tr class="smart-row" id="smart-row-${g.id}" hidden>
+      <td colspan="${colCount}">
+        <div class="smart-panel">
+          <p class="smart-head">${escapeHtml(g.strategy_name)}${g.seq_no ? ` · ${g.seq_no}번` : ""}</p>
+          ${body}
+          <a href="goal-detail.html?id=${g.id}" class="smart-more">지표·실적까지 보기 ›</a>
+        </div>
+      </td>
+    </tr>`;
+  };
+
+  // 펼침 행이 표 전체 폭을 쓰도록 열 수를 센다 (회사는 열이 아니라 구분 행이므로 항상 같다)
+  const colCount = 7;  // 검토 의견 열을 뺀 뒤의 열 수
+
+  // 회사 이름을 행마다 되풀이하지 않는다.
+  // 지주사로 보면 계열사 하나에 목표가 수십 건이라, 같은 이름이 수십 번 반복되면서
+  //  · 정작 읽어야 할 전략·지표가 밀려 좁아지고
+  //  · 세로로 훑을 때 같은 글자가 계속 걸려 어디서 회사가 바뀌는지 오히려 안 보인다.
+  // 그래서 회사 열을 없애고, 회사가 바뀌는 자리에 표 전체 폭을 쓰는 구분 행을 넣는다.
+  // 스크롤해도 어느 회사를 보고 있는지 알 수 있도록 이 행은 표 머리 아래에 붙어 따라온다(sticky).
+  const companyGroupRowHtml = (name, count) => `
+    <tr class="group-row"><td colspan="${colCount}">
+      <span class="group-name">${escapeHtml(name || "회사 미지정")}</span>
+      <span class="group-count">${count}건</span>
+    </td></tr>`;
+
+  // 회사별 건수를 미리 세어 구분 행에 적는다
+  const countByCompany = {};
+  (goals || []).forEach(g => {
+    const c = g.companies ? g.companies.name : "";
+    countByCompany[c] = (countByCompany[c] || 0) + 1;
+  });
+
+  let prevCompany = null, prevBu = null, prevStrategy = null;
   document.getElementById("rows").innerHTML = (goals||[]).map(g => {
     const lastReview = reviewsByGoal[g.id];
     const editable = canEditGoal(PROFILE, g);
     const buName = g.business_units ? g.business_units.name : "전사 공통";
+    const coName = g.companies ? g.companies.name : "";
+
+    // 회사가 바뀌면 구분 행을 먼저 끼워 넣는다 ('전체 회사'로 볼 때만 의미가 있다)
+    const isNewCompany = showCompany && coName !== prevCompany;
+    const groupHead = isNewCompany ? companyGroupRowHtml(coName, countByCompany[coName]) : "";
+    if (isNewCompany) { prevBu = null; prevStrategy = null; }
+    prevCompany = coName;
 
     // 사업부가 바뀌는 지점에 구분선을 넣어, 번호가 1부터 다시 시작하는 이유가 자연스럽게 읽히게 한다
     const isNewBu = buName !== prevBu;
@@ -296,23 +472,29 @@ async function loadGoals() {
     prevBu = buName;
     prevStrategy = g.strategy_name;
 
-    return `<tr class="cursor-pointer hover:bg-[var(--surface-hover)] ${isNewBu ? 'border-t-2 border-slate-200' : 'border-t border-slate-100'}" onclick="window.location.href='goal-detail.html?id=${g.id}'">
-      <td class="py-2 px-3 text-sm whitespace-nowrap align-top ${isNewBu ? 'font-medium text-slate-700' : 'text-slate-300'}">${isNewBu ? escapeHtml(buName) : ''}</td>
+    return `${groupHead}<tr class="cursor-pointer hover:bg-[var(--surface-hover)] ${isNewCompany ? '' : isNewBu ? 'border-t-2 border-slate-200' : 'border-t border-slate-100'}" onclick="window.location.href='goal-detail.html?id=${g.id}'">
+      <td class="py-2 px-3 text-sm align-top break-words ${isNewBu ? 'font-medium text-slate-700' : 'text-slate-300'}">${isNewBu ? escapeHtml(buName) : ''}</td>
       <td class="py-2 px-3 text-sm align-top text-slate-500">${g.seq_no ?? ''}</td>
-      <td class="py-2 px-3 text-sm align-top ${showStrategy ? 'font-medium text-slate-800' : ''}">${showStrategy ? escapeHtml(g.strategy_name) : '<span class="text-slate-300">〃</span>'}</td>
-      <td class="py-2 px-3 text-xs align-top">${metricCellHtml(g)}</td>
-      <td class="py-2 px-3 text-xs text-slate-600 align-top max-w-xs">${smCellHtml(g)}</td>
-      <td class="py-2 px-3 text-sm whitespace-nowrap align-top"><span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${STATUS_BADGE_CLASS[g.status]}">${STATUS_LABEL[g.status]}</span></td>
-      <td class="py-2 px-3 text-xs align-top whitespace-nowrap ${g.creator ? 'text-slate-600' : 'text-slate-300'}">${g.creator ? escapeHtml(g.creator.name || g.creator.email) : '미지정'}</td>
-      <td class="py-2 px-3 text-xs text-slate-500 align-top max-w-[10rem]"><span class="line-clamp-2">${lastReview ? escapeHtml(lastReview.comment||'') : ''}</span></td>
-      <td class="py-2 px-3 text-sm text-right whitespace-nowrap align-top" onclick="event.stopPropagation()">
-        <a href="goal-detail.html?id=${g.id}" class="text-slate-500 hover:underline mr-3">상세</a>
+      <td class="py-2 px-3 text-sm align-top break-words ${showStrategy ? 'font-medium text-slate-800' : ''}">${strategyCellHtml(g, showStrategy)}</td>
+      <td class="py-2 px-3 text-xs align-top break-words">${metricCellHtml(g)}</td>
+      <td class="py-2 px-3 text-sm align-top">
+        <span class="inline-block px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${STATUS_BADGE_CLASS[g.status]}" title="${escapeHtml(STATUS_HINT[g.status] || '')}">${STATUS_LABEL[g.status]}</span>
+        ${isMyTurn(PROFILE, g) && g.status !== 'draft' ? `<div class="text-[10.5px] mt-1 font-semibold" style="color:var(--red)">내 차례</div>` : ''}
+        ${readinessHtml(g, metricsByGoal, periodTargetCount)}
+        ${revisionNoteHtml(g, lastReview)}
+      </td>
+      <td class="py-2 px-3 text-xs align-top break-words ${g.creator ? 'text-slate-600' : 'text-slate-300'}">${g.creator ? escapeHtml(g.creator.name || g.creator.email) : '미지정'}</td>
+      <td class="py-2 pl-3 pr-6 text-sm text-right whitespace-nowrap align-top" onclick="event.stopPropagation()">
         ${editable ? `<a href="goal-form.html?id=${g.id}" class="text-slate-800 font-medium hover:underline">수정</a>` : ''}
         ${canDeleteGoal(PROFILE, g) ? `<button onclick="deleteGoal('${g.id}')" class="text-red-500 hover:underline ml-3">삭제</button>` : ''}
       </td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="9" class="py-8 text-center text-slate-400 text-sm">${
-      (SELECTED_BU_ID || SELECTED_AUTHOR_ID) ? "조건에 맞는 목표가 없습니다."
+    </tr>${smartRowHtml(g, colCount, lastReview)}`;
+  }).join("") || `<tr><td colspan="${colCount}" class="py-8 text-center text-slate-400 text-sm">${
+      (selectedBuId() || SELECTED_AUTHOR_ID) ? "조건에 맞는 목표가 없습니다."
+      : TAB === "mine" ? "지금 처리할 차례인 목표가 없습니다."
+      : TAB === "draft" ? "쓰다 만 목표가 없습니다."
+      : TAB === "waiting" ? "검토 중인 목표가 없습니다."
+      : TAB === "approved" ? "확정된 목표가 아직 없습니다."
       : `등록된 목표가 없습니다.${canWriteGoals(PROFILE) ? " '새 목표 작성'으로 시작하세요." : ""}`
     }</td></tr>`;
 }

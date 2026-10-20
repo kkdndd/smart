@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>나의 할 일 | 대교홀딩스 SMART</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<link rel="stylesheet" href="js/design.css" />
+<script src="js/config.js"></script>
+</head>
+<body class="min-h-screen">
+<div id="nav-root"></div>
+
+<div class="max-w-3xl mx-auto px-4 py-7">
+  <div class="mb-5">
+    <h1 class="page-title" id="greeting">할 일을 불러오는 중…</h1>
+    <p class="page-sub" id="where"></p>
+  </div>
+
+  <div id="intro-root"></div>
+  <div id="task-root"></div>
+  <div id="progress-root" class="mt-7"></div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/nav.js"></script>
+<script>
+let PROFILE, YEAR = getSelectedYear();
+
+(async function init() {
+  PROFILE = await requireAuth();
+  if (!PROFILE) return;
+  renderNav(PROFILE, "home");
+
+  document.getElementById("intro-root").innerHTML = introBannerHtml(
+    "home",
+    "이 화면은 '지금 내가 처리할 일'만 보여줍니다",
+    "메뉴를 돌아다니며 내 차례를 찾지 않아도 됩니다. 처리할 일이 생기면 여기에 나타나고, 다 끝내면 사라집니다. 전체 목록은 왼쪽 '사업계획'에서 볼 수 있습니다."
+  );
+
+  await render();
+})();
+
+async function render() {
+  const { tasks, goals } = await loadMyTasks(PROFILE, YEAR);
+
+  // --- 인사말: 몇 건 남았는지 먼저 말한다 ---
+  const total = tasks.reduce((s, t) => s + (t.count || 0), 0);
+  const company = PROFILE.companies ? PROFILE.companies.name : "지주사";
+  const bu = isBuStaff(PROFILE) ? (PROFILE.business_units || []).map(b => b.name).join(" · ") : "";
+
+  document.getElementById("greeting").textContent =
+    PROFILE.role === "holdco_exec" ? `${company} ${YEAR}년 사업계획 현황`
+    : total ? `처리할 일이 ${total}건 남았습니다`
+    : allDoneMessage(YEAR);
+
+  const now = new Date();
+  document.getElementById("where").textContent =
+    [`${YEAR}년 ${now.getMonth() + 1}월`, company, bu].filter(Boolean).join(" · ");
+
+  // --- 할 일 카드 ---
+  const root = document.getElementById("task-root");
+
+  if (PROFILE.role === "holdco_exec") {
+    root.innerHTML = `<div class="all-done">
+      <p class="msg">조회 전용 계정입니다</p>
+      <p class="sub">계열사별 진행 현황은 아래 요약과 대시보드에서 볼 수 있습니다.</p>
+      <div class="empty-actions"><a href="dashboard.html" class="btn btn-primary !text-[13px]">대시보드 보기</a></div>
+    </div>`;
+  } else if (!goals.length) {
+    // 목표가 하나도 없는 사람에게 빈 목록을 보여주는 대신 시작 방법을 준다
+    root.innerHTML = emptyStateHtml(
+      `${YEAR}년 사업계획이 아직 없습니다`,
+      "작년 목표를 불러오면 지표와 시작값이 채워진 채로 시작할 수 있어 가장 빠릅니다.",
+      canWriteGoals(PROFILE) ? [
+        { label: "작년 목표 불러오기", href: "goals.html?action=carryover", primary: true },
+        { label: "새로 쓰기", href: "goal-form.html" },
+        { label: "예시 보기", href: "goals.html?tab=all" }
+      ] : [{ label: "목표 목록 보기", href: "goals.html" }]
+    );
+  } else if (!tasks.length) {
+    root.innerHTML = `<div class="all-done">
+      <p class="msg">${escapeHtml(allDoneMessage(YEAR))}</p>
+      <p class="sub">새로 처리할 일이 생기면 이 화면에 나타납니다.</p>
+      <div class="empty-actions">
+        <a href="goals.html" class="btn btn-secondary !text-[13px]">사업계획 목록</a>
+        <a href="dashboard.html" class="btn btn-secondary !text-[13px]">대시보드 보기</a>
+      </div>
+    </div>`;
+  } else {
+    root.innerHTML = tasks.map(t => `
+      <a href="${t.href}" class="task-card tone-${t.tone}">
+        <span class="task-dot"></span>
+        <span class="task-body">
+          <span class="task-title block">${escapeHtml(t.title)}</span>
+          <span class="task-sub block">${escapeHtml(t.sub)}</span>
+        </span>
+        <span class="task-cta btn btn-secondary !text-[12.5px] !py-1.5">${escapeHtml(t.cta)}</span>
+      </a>`).join("");
+  }
+
+  renderProgress(goals);
+}
+
+// 진행률은 홈의 주인공이 아니라 아래 한 줄이다. 자세한 비교는 대시보드가 맡는다.
+function renderProgress(goals) {
+  const el = document.getElementById("progress-root");
+  if (!goals.length) { el.innerHTML = ""; return; }
+
+  const approved = goals.filter(g => g.status === "approved").length;
+  const pct = Math.round((approved / goals.length) * 100);
+  const scope = isBuStaff(PROFILE) ? "우리 사업부"
+              : isCompanyStaff(PROFILE) ? "우리 회사"
+              : "전사";
+
+  el.innerHTML = `
+    <div class="border-t pt-5" style="border-color:var(--border)">
+      <p class="text-[13px] font-semibold mb-3" style="color:var(--text-primary)">${scope} ${YEAR}년 계획 확정률</p>
+      <div class="flex items-center gap-3">
+        <div class="progress-bar flex-1"><span style="width:${pct}%"></span></div>
+        <span class="text-[13px] font-bold" style="color:var(--text-primary)">${pct}%</span>
+      </div>
+      <p class="text-[11.5px] mt-2" style="color:var(--text-secondary)">
+        목표 ${goals.length}건 중 ${approved}건 확정 ·
+        <a href="dashboard.html" class="underline">자세히 보기</a>
+      </p>
+    </div>`;
+}
+</script>
+</body>
+</html>

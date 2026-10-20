@@ -42,6 +42,20 @@
     </div>
   </div>
 
+  <!-- 대시보드가 첫 화면이므로, 내가 처리할 일이 묻히지 않도록 맨 위에 띠로 올린다 -->
+  <div id="mytask-strip"></div>
+
+  <!-- 보는 범위를 좁히는 필터 (다른 화면으로 옮겨가도 유지됨) -->
+  <div id="filter-bar"></div>
+
+  <!-- 표를 읽기 전에 결론을 한 문장으로 -->
+  <div class="card p-4 mb-4 flex flex-wrap items-center justify-between gap-3">
+    <p class="text-[14px] font-medium flex-1 min-w-[280px]" id="lead-line" style="color:var(--text-primary)"></p>
+    <label class="flex items-center gap-2 text-[12.5px] whitespace-nowrap" style="color:var(--text-secondary)">
+      <input type="checkbox" id="scope-toggle" /> 작성 중인 목표까지 포함
+    </label>
+  </div>
+
   <!-- 핵심 요약 -->
   <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4" id="summary-cards"></div>
 
@@ -82,30 +96,33 @@
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, ALL_GOALS = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PROGRESS_BY_KEY = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
+let PROFILE, ALL_GOALS = [], ALL_GOALS_FULL = [], ALL_METRICS = [], LATEST_PROGRESS = {}, ALL_PROGRESS_BY_KEY = {}, ALL_PERIOD_TARGETS = {}, SEARCH = "";
+// 기본은 확정된 목표만. 작성 중인 목표까지 보려면 토글을 켠다.
+let SHOW_ALL = false;
 const YEAR = getSelectedYear();
 let statusChartInstance = null, rateChartInstance = null;
 
 // 기존 배지(STATUS_BADGE_CLASS)와 완전히 동일한 색으로 맞춰, 페이지 안에서 같은 상태가 다른 색으로 보이지 않도록 함
-const STATUS_CHART_COLOR = {
-  draft: "#6e6e73",
-  submitted: "#4c6fa5",
-  company_approved: "#3f5bb5",
-  revision_requested: "#b9821f",
-  approved: "#2f9e5b",
-  locked: "#3a4356"
+// Chart.js는 CSS 변수를 못 읽으므로 토큰 이름만 적어두고, 쓸 때 cssVar()로 실제 값을 꺼낸다
+const STATUS_CHART_TOKEN = {
+  draft: "--text-secondary",
+  submitted: "--blue",
+  company_approved: "--indigo",
+  revision_requested: "--amber-ink",
+  approved: "--green",
+  locked: "--accent"
 };
 // 기존 rateColorClass와 동일한 90% / 60% 임계값 기준 색
 function rateBarColor(rate) {
-  if (rate === null || rate === undefined) return "#d1d1d6";
-  if (rate >= 90) return "#2f9e5b";
-  if (rate >= 60) return "#b9821f";
-  return "#c94a3c";
+  if (rate === null || rate === undefined) return cssVar("--neutral-dot");
+  if (rate >= 90) return cssVar("--green");
+  if (rate >= 60) return cssVar("--amber-ink");
+  return cssVar("--red");
 }
 
 if (window.Chart) {
   Chart.defaults.font.family = "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', sans-serif";
-  Chart.defaults.color = "#6e6e73";
+  Chart.defaults.color = cssVar("--text-secondary");
   if (window.ChartDataLabels) {
     Chart.register(ChartDataLabels);
     Chart.defaults.set("plugins.datalabels", { display: false });
@@ -125,10 +142,10 @@ const centerTextPlugin = {
     ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#1d1d1f";
+    ctx.fillStyle = cssVar("--text-primary");
     ctx.font = "bold 22px -apple-system, 'Apple SD Gothic Neo', sans-serif";
     ctx.fillText(String(total), cx, cy - 9);
-    ctx.fillStyle = "#a1a1a6";
+    ctx.fillStyle = cssVar("--text-tertiary");
     ctx.font = "11px -apple-system, 'Apple SD Gothic Neo', sans-serif";
     ctx.fillText("전체 목표", cx, cy + 12);
     ctx.restore();
@@ -138,15 +155,101 @@ const centerTextPlugin = {
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
-  renderNav(PROFILE, "dashboard");
+  renderNav(PROFILE, "status");
   renderDashboardTitle();
   await loadData();
-  render();
+
+  applyFilterFromUrl();
+  await renderFilterBar({
+    root: document.getElementById("filter-bar"),
+    profile: PROFILE, year: YEAR,
+    fields: ["company", "bu"], allowAll: true,
+    onChange: () => applyScope()
+  });
+
+  applyScope();
+  renderMyTaskStrip();   // 숫자가 느리게 와도 대시보드가 먼저 그려지도록 마지막에
   document.getElementById("search-input").addEventListener("input", (e) => {
     SEARCH = e.target.value.trim().toLowerCase();
     renderGroups();
   });
+  document.getElementById("scope-toggle").addEventListener("change", (e) => {
+    SHOW_ALL = e.target.checked;
+    applyScope();
+  });
 })();
+
+// 대시보드가 첫 화면이 되면서, 내가 처리할 일이 눈에 안 띌 위험이 생겼다.
+// 맨 위에 한 줄 띠를 둬서 "지금 내 차례인 것"을 놓치지 않게 한다. 자세한 건 '나의 할 일' 화면.
+async function renderMyTaskStrip() {
+  const el = document.getElementById("mytask-strip");
+  if (PROFILE.role === "holdco_exec") { el.innerHTML = ""; return; }
+  try {
+    const { tasks } = await loadMyTasks(PROFILE, YEAR);
+    if (!tasks.length) { el.innerHTML = ""; return; }
+
+    const urgent = tasks.some(t => t.tone === "overdue");
+    const top = tasks[0];
+    const rest = tasks.length - 1;
+    el.innerHTML = `
+      <a href="home.html" class="card drill mb-4 px-4 py-3 flex items-center gap-3"
+         style="border-color:${urgent ? "var(--red)" : "var(--border)"}">
+        <span class="task-dot" style="background:${urgent ? "var(--red)" : "var(--blue)"}"></span>
+        <span class="flex-1 min-w-0">
+          <span class="text-[13.5px] font-semibold block" style="color:var(--text-primary)">${escapeHtml(top.title)}</span>
+          <span class="text-[11.5px] block" style="color:var(--text-secondary)">${escapeHtml(top.sub)}${rest > 0 ? ` · 그 밖에 ${rest}가지가 더 있습니다` : ""}</span>
+        </span>
+        <span class="text-[12.5px] whitespace-nowrap" style="color:var(--accent)">나의 할 일 ›</span>
+      </a>`;
+  } catch (e) {
+    el.innerHTML = ""; // 띠는 보조 정보이므로 실패해도 대시보드는 그대로 보여준다
+  }
+}
+
+// 기본은 '확정된 목표'만 본다.
+// 작성 중인 목표가 평균에 섞이면 전사 달성률이 실제보다 낮게 보이고, 대부분의 칸이 비어 보인다.
+function applyScope() {
+  const f = getFilter();
+  ALL_GOALS = ALL_GOALS_FULL.filter(g => {
+    if (!SHOW_ALL && g.status !== "approved" && g.status !== "locked") return false;
+    if (f.companyId && g.company_id !== f.companyId) return false;
+    if (f.buId && g.business_unit_id !== f.buId) return false;
+    return true;
+  });
+  render();
+  renderLead();
+}
+
+// 표를 읽기 전에 결론을 한 문장으로 먼저 말해준다
+function renderLead() {
+  const el = document.getElementById("lead-line");
+  const f = getFilter();
+  // 상태 토글과 무관하게, 지금 고른 회사·사업부 안의 전체 건수를 기준으로 말한다
+  const scoped = ALL_GOALS_FULL.filter(g =>
+    (!f.companyId || g.company_id === f.companyId) && (!f.buId || g.business_unit_id === f.buId));
+  const total = scoped.length;
+  const approved = scoped.filter(g => g.status === "approved" || g.status === "locked").length;
+  if (!total) { el.textContent = `${YEAR}년에 등록된 목표가 아직 없습니다.`; return; }
+
+  const rate = avgRate(ALL_GOALS);
+  const scopeWord = SHOW_ALL ? "전체 목표" : "확정된 목표";
+  const parts = [];
+  parts.push(SHOW_ALL ? `목표 ${total}건 중 ${approved}건이 확정됐습니다.` : `확정된 목표는 ${approved}건입니다 (전체 ${total}건).`);
+  if (rate !== null) parts.push(`${scopeWord}의 평균 달성률은 ${rate}%입니다.`);
+  else parts.push("아직 달성률을 계산할 실적이 없습니다.");
+
+  // 달성률을 낼 수 없는 지표가 많으면 그 사실도 함께 알린다 (0%와는 다른 상황이다)
+  const noTarget = ALL_METRICS.filter(m => {
+    if (!ALL_GOALS.some(g => g.id === m.goal_id)) return false;
+    if (m.metric_type === "milestone" || m.metric_type === "qualitative") return false;
+    const hasAnnual = m.target_value !== null && m.target_value !== undefined;
+    const hasPeriod = Object.keys(ALL_PERIOD_TARGETS).some(k => k.startsWith(m.id + "|"));
+    return !hasAnnual && !hasPeriod;
+  }).length;
+  if (noTarget) parts.push(`목표값이 없어 달성률을 낼 수 없는 지표가 ${noTarget}개 있습니다.`);
+
+  el.textContent = parts.join(" ");
+}
 
 // 어느 회사의 대시보드를 보고 있는지 제목에서 바로 드러나게 한다.
 // 역할마다 보이는 범위가 달라서(지주사=전사, 계열사=자사, 사업부=담당 사업부) 부제로 범위도 함께 밝힌다.
@@ -186,6 +289,9 @@ async function loadData() {
     if (g.business_unit_id && hiddenBuIds.has(g.business_unit_id)) return false;
     return true;
   });
+
+  // 토글로 범위를 바꿀 때 다시 읽지 않도록 전체 목록을 따로 보관한다
+  ALL_GOALS_FULL = ALL_GOALS;
 
   const goalIds = ALL_GOALS.map(g => g.id);
   if (goalIds.length === 0) return;
@@ -244,6 +350,26 @@ function goalRate(goal) {
   if (rates.length === 0) return null;
   return Math.round((rates.reduce((a,b)=>a+b,0) / rates.length) * 10) / 10;
 }
+
+// 달성률이 비어 있는 이유는 두 가지이고, 둘은 전혀 다른 상황이다.
+//  · 목표값이 없어서 계산 자체가 불가능한 경우  → 계획을 고쳐야 한다
+//  · 목표값은 있는데 실적이 아직 안 들어온 경우 → 실적을 넣어야 한다
+function goalHasTarget(goal) {
+  const list = goalMetrics(goal).filter(m => m.metric_type === "increasing" || m.metric_type === "decreasing");
+  if (!list.length) return true; // 정성 지표만 있는 목표는 목표값 개념이 없다
+  return list.some(m => {
+    if (m.target_value !== null && m.target_value !== undefined) return true;
+    return Object.keys(ALL_PERIOD_TARGETS).some(k => k.startsWith(m.id + "|"));
+  });
+}
+function rateUnknownLabel(goal) {
+  return goalHasTarget(goal) ? "실적 없음" : "목표값 없음";
+}
+function rateUnknownReason(goal) {
+  return goalHasTarget(goal)
+    ? "목표값은 있지만 아직 입력된 실적이 없습니다"
+    : "목표값이 없어 달성률을 계산할 수 없습니다. 목표를 열어 목표값을 채워주세요";
+}
 function avgRate(goalsSubset) {
   const rates = goalsSubset.map(goalRate).filter(r => r !== null && r !== undefined);
   if (rates.length === 0) return null;
@@ -272,20 +398,30 @@ function renderStatusChart() {
   const order = ["draft", "submitted", "company_approved", "revision_requested", "approved", "locked"];
   const counts = order.map(s => ALL_GOALS.filter(g => g.status === s).length);
   // 0건인 상태는 도넛 조각에서 제외 (빈 슬라이스는 시각적으로 의미가 없음)
-  const labels = [], data = [], colors = [];
+  const labels = [], data = [], colors = [], shown = [];
   order.forEach((s, i) => {
-    if (counts[i] > 0) { labels.push(STATUS_LABEL[s]); data.push(counts[i]); colors.push(STATUS_CHART_COLOR[s]); }
+    if (counts[i] > 0) { labels.push(STATUS_LABEL[s]); data.push(counts[i]); colors.push(cssVar(STATUS_CHART_TOKEN[s])); shown.push(s); }
   });
+
+  // 상태별 조각에서 바로 그 상태의 목록으로 들어갈 수 있게 한다
+  const TAB_OF_STATUS = {
+    draft: "draft", submitted: "waiting", company_approved: "waiting",
+    revision_requested: "mine", approved: "approved", locked: "approved"
+  };
 
   const ctx = document.getElementById("status-chart").getContext("2d");
   statusChartInstance = new Chart(ctx, {
     type: "doughnut",
-    data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: "#ffffff", borderWidth: 2 }] },
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: cssVar("--surface"), borderWidth: 2 }] },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: "68%",
+      onClick: (evt, els) => {
+        if (els.length) window.location.href = goalsLink({ tab: TAB_OF_STATUS[shown[els[0].index]] || "all" });
+      },
+      onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? "pointer" : "default"; },
       plugins: {
         legend: { position: "right", labels: { boxWidth: 10, font: { size: 11.5 }, padding: 10 } },
-        tooltip: { callbacks: { label: (c) => `${c.label}: ${c.raw}건` } },
+        tooltip: { callbacks: { label: (c) => `${c.label}: ${c.raw}건 — 눌러서 목록 보기` } },
         datalabels: { display: false }
       }
     },
@@ -335,15 +471,18 @@ function renderRateChart() {
     options: {
       indexAxis: "y", // 가로 막대: 한글 라벨이 길어도 회전/잘림 없이 표시
       responsive: true, maintainAspectRatio: false,
+      // 막대를 누르면 그 계열사·사업부의 목표 목록으로 들어간다
+      onClick: (evt, els) => { if (els.length) drillToGroup(rows[els[0].index].name); },
+      onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? "pointer" : "default"; },
       scales: {
-        x: { beginAtZero: true, suggestedMax: 100, ticks: { callback: (v) => v + "%" }, grid: { color: "#f0f0f2" } },
+        x: { beginAtZero: true, suggestedMax: 100, ticks: { callback: (v) => v + "%" }, grid: { color: cssVar("--neutral-soft") } },
         y: { grid: { display: false } }
       },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (c) => `달성률 ${c.raw}%` } },
+        tooltip: { callbacks: { label: (c) => `달성률 ${c.raw}% — 눌러서 목록 보기` } },
         datalabels: {
-          display: true, anchor: "end", align: "end", color: "#1d1d1f",
+          display: true, anchor: "end", align: "end", color: cssVar("--text-primary"),
           font: { size: 11, weight: "bold" }, formatter: (v) => v + "%"
         }
       }
@@ -370,6 +509,10 @@ function renderCompanyOverview() {
     const submitted = statusCount(c.goals, "submitted") + statusCount(c.goals, "company_approved"); // 계열사·지주사 검토 대기 합계
     const revision = statusCount(c.goals, "revision_requested");
     const draft = statusCount(c.goals, "draft");
+    // 상태 배지도 각각 그 상태의 목록으로 들어가는 길이다
+    const chip = (label, n, cls, tab) => n
+      ? `<a href="${goalsLink({ tab, companyId })}" class="badge ${cls} !text-[10px] hover:brightness-95" onclick="event.stopPropagation()">${label} ${n}</a>` : '';
+
     return `<div class="card p-4 cursor-pointer risk-card" onclick="focusCompany('${companyId}')">
       <div class="flex items-center justify-between mb-2">
         <span class="text-[14px] font-semibold" style="color:var(--text-primary)">${escapeHtml(c.name)}</span>
@@ -377,10 +520,10 @@ function renderCompanyOverview() {
       </div>
       <p class="text-[12px] mb-2" style="color:var(--text-secondary)">목표 ${c.goals.length}건${atRisk>0?` · <span style="color:var(--red)">위험 ${atRisk}건</span>`:''}</p>
       <div class="flex flex-wrap gap-1">
-        ${approved ? `<span class="badge ${STATUS_BADGE_CLASS.approved} !text-[10px]">합의 ${approved}</span>` : ''}
-        ${submitted ? `<span class="badge ${STATUS_BADGE_CLASS.submitted} !text-[10px]">검토대기 ${submitted}</span>` : ''}
-        ${revision ? `<span class="badge ${STATUS_BADGE_CLASS.revision_requested} !text-[10px]">수정요청 ${revision}</span>` : ''}
-        ${draft ? `<span class="badge ${STATUS_BADGE_CLASS.draft} !text-[10px]">임시저장 ${draft}</span>` : ''}
+        ${chip("확정", approved, STATUS_BADGE_CLASS.approved, "approved")}
+        ${chip("검토대기", submitted, STATUS_BADGE_CLASS.submitted, "waiting")}
+        ${chip("수정요청", revision, STATUS_BADGE_CLASS.revision_requested, "mine")}
+        ${chip("작성 중", draft, STATUS_BADGE_CLASS.draft, "draft")}
       </div>
     </div>`;
   }).join("");
@@ -393,21 +536,39 @@ function focusCompany(companyId) {
   el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// 차트에서 막대를 누르면 그 계열사(또는 사업부)의 목록으로 들어간다
+function drillToGroup(name) {
+  if (isHoldco(PROFILE)) {
+    const hit = ALL_GOALS.find(g => g.companies && g.companies.name === name);
+    if (hit) { window.location.href = goalsLink({ tab: "all", companyId: hit.company_id, buId: "" }); return; }
+  }
+  const hit = ALL_GOALS.find(g => (g.business_units ? g.business_units.name : "사업부 미지정") === name);
+  if (hit) window.location.href = goalsLink({ tab: "all", buId: hit.business_unit_id || "" });
+}
+
+// 숫자는 전부 눌러서 그 목록으로 들어갈 수 있다.
+// 현황에서 이상한 숫자를 발견했을 때 "그래서 어느 건인데?"로 바로 넘어가는 길이 있어야 한다.
 function renderSummary() {
   const total = ALL_GOALS.length;
   const approved = ALL_GOALS.filter(g => g.status === "approved" || g.status === "locked").length;
   const submitted = ALL_GOALS.filter(g => g.status === "submitted" || g.status === "company_approved").length;
   const rate = avgRate(ALL_GOALS);
-  const cell = (label, value, colorClass) => `
-    <div class="card p-4">
-      <p class="text-[12px]" style="color:var(--text-secondary)">${label}</p>
+
+  const cell = (label, value, href, hint, colorClass) => `
+    <a href="${href}" class="card p-4 drill">
+      <p class="text-[12px] flex items-center justify-between" style="color:var(--text-secondary)">
+        ${label}<span class="drill-hint">${hint} ›</span>
+      </p>
       <p class="text-2xl font-bold mt-1 ${colorClass||''}" ${colorClass?'':'style="color:var(--text-primary)"'}>${value}</p>
-    </div>`;
+    </a>`;
+
   document.getElementById("summary-cards").innerHTML =
-    cell("전체 목표", total) +
-    cell("합의완료", `${approved}<span class="text-sm font-normal" style="color:var(--text-tertiary)"> / ${total}</span>`) +
-    cell("검토대기", submitted) +
-    cell("평균 달성률", rate===null?'-':rate+'%', rate===null?'':(rate>=90?'text-[#2f9e5b]':rate>=60?'text-[#c98a1f]':'text-[#c94a3c]'));
+    cell("전체 목표", total, goalsLink({ tab: "all" }), "목록 보기") +
+    cell("확정", `${approved}<span class="text-sm font-normal" style="color:var(--text-tertiary)"> / ${total}</span>`,
+         goalsLink({ tab: "approved" }), "확정 목록") +
+    cell("검토대기", submitted, goalsLink({ tab: "waiting" }), "검토 목록") +
+    cell("평균 달성률", rate===null?'-':rate+'%', "#panel-root", "상세 보기",
+         rate===null?'':(rate>=90?'ink-good':rate>=60?'ink-warn':'ink-risk'));
 }
 
 function renderRiskCards() {
@@ -428,22 +589,42 @@ function renderRiskCards() {
     return metricRate(m) === null || metricRate(m) === undefined;
   }));
 
-  const card = (title, list, tone, emptyMsg, suffixFn) => `
-    <div class="card risk-card p-4">
+  // 카드마다 "눌렀을 때 가야 할 곳"이 다르다.
+  //  · 실적 미입력 → 실적 입력 화면 (대시보드로 되돌려 보내면 다시 찾아 들어가야 한다)
+  //  · 목표값 미설정 → 목표를 고치는 화면
+  //  · 나머지 → 목표 상세
+  const card = (title, list, tone, emptyMsg, opts) => {
+    opts = opts || {};
+    const linkOf = opts.linkOf || (g => `goal-detail.html?id=${g.id}`);
+    const more = list.length > 5 && opts.moreHref
+      ? `<a href="${opts.moreHref}" class="block text-[11.5px] mt-1.5 hover:underline" style="color:var(--accent)">${list.length}건 전체 보기 ›</a>` : "";
+    return `<div class="card risk-card p-4">
       <div class="flex items-center justify-between mb-2">
         <span class="text-[13px] font-semibold" style="color:var(--text-primary)">${title}</span>
         <span class="badge" style="background:${tone.bg};color:${tone.fg}">${list.length}건</span>
       </div>
       <div class="space-y-1.5 max-h-32 overflow-y-auto">
-        ${list.slice(0,5).map(g => `<a href="goal-detail.html?id=${g.id}" class="block text-[12.5px] truncate hover:underline" style="color:var(--text-secondary)">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}${suffixFn ? suffixFn(g) : ''}</a>`).join("") || `<p class="text-[12px]" style="color:var(--text-tertiary)">${emptyMsg}</p>`}
+        ${list.slice(0,5).map(g => `<a href="${linkOf(g)}" class="block text-[12.5px] truncate hover:underline" style="color:var(--text-secondary)">${escapeHtml(g.companies.name)} · ${escapeHtml(g.strategy_name)}${opts.suffixFn ? opts.suffixFn(g) : ''}</a>`).join("")
+          || `<p class="text-[12px]" style="color:var(--text-tertiary)">${emptyMsg}</p>`}
       </div>
+      ${more}
     </div>`;
+  };
 
   document.getElementById("risk-cards").innerHTML =
-    card("달성률 60% 미만", atRisk, { bg: "var(--red-soft)", fg: "var(--red)" }, "위험 목표가 없습니다") +
-    card("수정요청 대기중", revisionNeeded, { bg: "var(--amber-soft)", fg: "var(--amber)" }, "없음") +
-    card("실적 미입력 목표 (마감 경과)", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "마감 경과 미입력 없음", (g) => ` <span style="color:var(--text-tertiary)">· ${overdueMap.get(g.id)}건 미입력</span>`) +
-    card("목표값 미설정 (달성률 계산불가)", rateUnavailable, { bg: "#f0f0f2", fg: "#6e6e73" }, "없음");
+    card("달성률 60% 미만", atRisk, { bg: "var(--red-soft)", fg: "var(--red)" }, "위험 목표가 없습니다",
+      { moreHref: goalsLink({ tab: "approved" }) }) +
+    card("수정요청 대기중", revisionNeeded, { bg: "var(--amber-soft)", fg: "var(--amber)" }, "없음",
+      { moreHref: goalsLink({ tab: "mine" }) }) +
+    card("실적 미입력 목표 (마감 경과)", noProgress, { bg: "var(--blue-soft)", fg: "var(--blue)" }, "마감 경과 미입력 없음",
+      {
+        // 바로 그 목표의 실적 입력 화면으로 (현황이 아니라)
+        linkOf: g => `progress.html?goal=${g.id}`,
+        moreHref: "progress.html",
+        suffixFn: g => ` <span style="color:var(--text-tertiary)">· ${overdueMap.get(g.id)}건 미입력</span>`
+      }) +
+    card("목표값 미설정 (달성률 계산불가)", rateUnavailable, { bg: "var(--neutral-soft)", fg: "var(--text-secondary)" }, "없음",
+      { linkOf: g => canEditGoal(PROFILE, g) ? `goal-form.html?id=${g.id}` : `goal-detail.html?id=${g.id}` });
 }
 
 function matchesSearch(g) {
@@ -489,7 +670,7 @@ function renderGroups() {
             </div>
             <p class="text-[12px] truncate" style="color:var(--text-secondary)">${escapeHtml(goalMetricNames(g, goalMetrics(g)) || 'KPI 지표 미등록')}</p>
           </div>
-          <span class="badge ${rateColorClass(rate)} whitespace-nowrap">${rate===null?'실적없음':rate+'%'}</span>
+          <span class="badge ${rateColorClass(rate)} whitespace-nowrap" title="${escapeHtml(rateUnknownReason(g))}">${rate===null?rateUnknownLabel(g):rate+'%'}</span>
         </a>`;
       }).join("");
 

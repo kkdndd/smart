@@ -12,36 +12,61 @@
 </head>
 <body class="min-h-screen">
 <div id="nav-root"></div>
+<!--
+  화면 순서는 "이 화면을 왜 열었는가"를 따른다.
+  열어보는 이유의 대부분은 **지금 잘 되고 있는지**와 **내가 뭘 해야 하는지**이고,
+  작성 당시에 적어둔 SMART 서술은 그다음이다. 그래서
+    길잡이 → 제목·상태·지금 할 일 → 한눈 요약 → 지표·실적 → (접힘) SMART → (접힘) 이력
+  순으로 둔다. 예전에는 SMART 서술 여섯 칸이 맨 위를 차지해, 숫자를 보려면 늘 스크롤해야 했다.
+-->
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
-  <div class="flex items-center justify-between">
-    <a href="goals.html" class="text-sm text-slate-500 hover:underline">← 목록으로</a>
-    <div id="header-actions" class="flex gap-2"></div>
-  </div>
+  <nav id="crumbs" class="crumbs"></nav>
 
   <div class="card p-6">
-    <div class="flex items-center gap-2 mb-1">
-      <h1 id="title" class="text-lg font-bold text-slate-800"></h1>
-      <span id="status-badge" class="px-2 py-0.5 rounded-full text-xs"></span>
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <h1 id="title" class="page-title"></h1>
+          <span id="status-badge" class="px-2 py-0.5 rounded-full text-xs"></span>
+        </div>
+        <p id="meta" class="text-xs" style="color:var(--text-tertiary)"></p>
+      </div>
+      <div id="header-actions" class="flex gap-2 flex-wrap justify-end"></div>
     </div>
-    <p id="meta" class="text-xs text-slate-400 mb-4"></p>
-    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-      <div><dt class="mb-1"><span class="inline-block px-2 py-0.5 rounded text-xs font-semibold" style="background:#EEF0F4;color:#3A4356">S · Specific</span></dt><dd id="f_specific" class="text-slate-700"></dd></div>
-      <div><dt class="mb-1"><span class="inline-block px-2 py-0.5 rounded text-xs font-semibold" style="background:#EAF0F8;color:#4C6FA5">M · Measurable</span></dt><dd id="f_measurable" class="text-slate-700"></dd></div>
-      <div><dt class="mb-1"><span class="inline-block px-2 py-0.5 rounded text-xs font-semibold" style="background:#E7F5EC;color:#2F9E5B">A · Achievable</span></dt><dd id="f_achievable" class="text-slate-700"></dd></div>
-      <div><dt class="mb-1"><span class="inline-block px-2 py-0.5 rounded text-xs font-semibold" style="background:#FAF1DE;color:#C98A1F">R · Relevant</span></dt><dd id="f_relevant" class="text-slate-700"></dd></div>
-      <div><dt class="mb-1"><span class="inline-block px-2 py-0.5 rounded text-xs font-semibold" style="background:#FBEAE7;color:#C94A3C">T · Time-bound</span></dt><dd id="f_timebound" class="text-slate-700"></dd></div>
-      <div><dt class="mb-1"><span class="inline-block px-2 py-0.5 rounded text-xs font-semibold" style="background:#F0F0F2;color:#6E6E73">후속조치</span></dt><dd id="f_followup" class="text-slate-700"></dd></div>
-    </dl>
+
+    <!-- 상태에 따라 '지금 할 일'을 한 문장으로 (내 차례일 때만 강조) -->
+    <div id="next-step"></div>
+
+    <!-- 지표가 여러 개여도 전체 상태를 한 줄로 먼저 알 수 있게 -->
+    <div id="summary-strip"></div>
   </div>
 
   <div class="card p-6">
-    <h2 class="font-semibold text-slate-800 mb-3">핵심지표(KPI) 및 달성 현황</h2>
+    <h2 class="section-title">핵심지표(KPI) 및 달성 현황</h2>
     <div id="metrics-root" class="space-y-3"></div>
   </div>
 
+  <!-- SMART 서술은 작성·검토할 때만 필요하므로 접어 둔다. 표기는 목록 화면의 펼침 패널과 같다. -->
   <div class="card p-6">
-    <h2 class="font-semibold text-slate-800 mb-3">검토/합의 이력</h2>
-    <div id="reviews-root" class="space-y-2 text-sm"></div>
+    <details id="smart-wrap">
+      <summary class="section-title cursor-pointer">목표 내용 (SMART) <span id="smart-count" class="font-normal text-[12px]" style="color:var(--text-tertiary)"></span></summary>
+      <div id="smart-root" class="mt-3"></div>
+    </details>
+  </div>
+
+  <div class="card p-6">
+    <details id="reviews-wrap">
+      <summary class="section-title cursor-pointer">검토 · 합의 이력 <span id="reviews-count" class="font-normal text-[12px]" style="color:var(--text-tertiary)"></span></summary>
+      <div id="reviews-root" class="mt-3 space-y-2 text-sm"></div>
+    </details>
+  </div>
+
+  <!-- 누가 언제 목표값을 바꿨는지 (DB 트리거가 적는 기록이라 화면에서 지울 수 없다) -->
+  <div class="card p-6">
+    <details id="history-wrap">
+      <summary class="section-title cursor-pointer">변경 이력 <span id="history-count" class="font-normal text-[12px]" style="color:var(--text-tertiary)"></span></summary>
+      <div id="history-root" class="mt-3"></div>
+    </details>
   </div>
 </div>
 
@@ -53,7 +78,7 @@ let PROFILE, GOAL_ID = new URLSearchParams(location.search).get("id"), GOAL;
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
-  renderNav(PROFILE, "goals");
+  renderNav(PROFILE, "plan");
   await load();
 })();
 
@@ -67,48 +92,116 @@ async function load() {
   // 관리번호는 사업부별로 매겨지므로 "2026년 강원심층수 영업 1번 목표" 형태로 읽히게 표기한다
   document.getElementById("meta").textContent =
     `${goal.year}년 · ${goal.companies.name} · ${goalRefLabel(goal)} 목표`;
-  document.getElementById("f_specific").innerHTML = nl2br(goal.specific_text) || '-';
-  document.getElementById("f_measurable").innerHTML = nl2br(goal.measurable_text) || '-';
-  document.getElementById("f_achievable").innerHTML = nl2br(goal.achievable_text) || '-';
-  document.getElementById("f_relevant").innerHTML = nl2br(goal.relevant_text) || '-';
-  document.getElementById("f_timebound").innerHTML = nl2br(goal.timebound_text) || '-';
-  document.getElementById("f_followup").innerHTML = nl2br(goal.follow_up_action) || '-';
 
+  renderCrumbs();
   renderActions();
+  renderNextStep();
+  renderSmart();
   await loadMetrics();
   await loadReviews();
+  await loadHistory();
 }
 
+// 어디에서 들어왔든 지금 위치를 알 수 있게 한다.
+// '← 목록으로' 한 줄만 있으면 어느 회사·사업부의 목표인지는 아래 meta 한 줄에 묻혔다.
+function renderCrumbs() {
+  const parts = [
+    `<a href="${goalsLink({ companyId: GOAL.company_id, buId: null })}">사업계획</a>`,
+    `<a href="${goalsLink({ companyId: GOAL.company_id, buId: null })}">${escapeHtml(GOAL.companies.name)}</a>`,
+    GOAL.business_unit_id
+      ? `<a href="${goalsLink({ companyId: GOAL.company_id, buId: GOAL.business_unit_id })}">${escapeHtml(GOAL.business_units ? GOAL.business_units.name : "")}</a>`
+      : `<span>전사 공통</span>`,
+    `<span class="crumb-now">${GOAL.seq_no ?? "-"}번</span>`
+  ];
+  document.getElementById("crumbs").innerHTML = parts.join('<span class="crumb-sep">›</span>');
+}
+
+// 버튼을 전부 같은 무게로 늘어놓으면 "지금 뭘 눌러야 하는지"가 사라진다.
+// 지금 단계에서 해야 할 일 하나만 주 버튼(btn-primary)으로 두고, 나머지는 보조 버튼으로 내린다.
 function renderActions() {
-  const actions = [];
-  if (canEditGoal(PROFILE, GOAL)) {
-    actions.push(`<a href="goal-form.html?id=${GOAL.id}" class="text-sm bg-[#3a4356] text-white rounded px-3 py-1.5">수정</a>`);
+  const turn = myTurnKind(PROFILE, GOAL);          // write | fix | review | approve | null
+  const canReviewNow = turn === "review" || turn === "approve";
+  const canEdit = canEditGoal(PROFILE, GOAL);
+
+  const primary = canReviewNow
+    ? `<a href="review.html?goal=${GOAL.id}" class="btn btn-primary !text-sm !py-1.5">검토하기</a>`
+    : canEdit && (turn === "write" || turn === "fix")
+      ? `<a href="goal-form.html?id=${GOAL.id}" class="btn btn-primary !text-sm !py-1.5">${turn === "fix" ? "보완해서 다시 내기" : "이어서 작성"}</a>`
+      : `<a href="progress.html?goal=${GOAL.id}" class="btn btn-primary !text-sm !py-1.5">진행실적 입력</a>`;
+
+  const rest = [];
+  if (!canReviewNow && !(canEdit && (turn === "write" || turn === "fix"))) {
+    // 주 버튼이 '실적 입력'으로 갔을 때만 수정이 보조로 내려온다
+    if (canEdit) rest.push(`<a href="goal-form.html?id=${GOAL.id}" class="btn btn-ghost !text-sm !py-1.5">수정</a>`);
+  } else {
+    rest.push(`<a href="progress.html?goal=${GOAL.id}" class="btn btn-ghost !text-sm !py-1.5">진행실적 입력</a>`);
   }
   if (canWriteGoals(PROFILE) && (GOAL.status === "approved" || GOAL.status === "locked")) {
-    actions.push(`<a href="change-requests.html?goal=${GOAL.id}" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5">변경요청</a>`);
+    rest.push(`<a href="change-requests.html?goal=${GOAL.id}" class="btn btn-ghost !text-sm !py-1.5">변경요청</a>`);
   }
-  actions.push(`<a href="progress.html?goal=${GOAL.id}" class="text-sm bg-white border border-slate-300 rounded px-3 py-1.5">진행실적 입력</a>`);
   // 제출취소: 사업부 담당자는 계열사 검토 전, 계열사 담당자는 지주사 검토 전까지 회수할 수 있다
   const canWithdraw = (isBuStaff(PROFILE) && GOAL.status === "submitted")
                    || (isCompanyStaff(PROFILE) && (GOAL.status === "submitted" || GOAL.status === "company_approved"));
-  if (canWithdraw) {
-    actions.push(`<button onclick="withdrawSubmission()" class="text-sm bg-white border border-red-300 text-red-600 rounded px-3 py-1.5">제출취소</button>`);
+  if (canWithdraw) rest.push(`<button onclick="withdrawSubmission()" class="btn btn-danger !text-sm !py-1.5">제출취소</button>`);
+  if (canDeleteGoal(PROFILE, GOAL)) rest.push(`<button onclick="deleteThisGoal()" class="btn btn-danger !text-sm !py-1.5">삭제</button>`);
+
+  document.getElementById("header-actions").innerHTML = primary + rest.join("");
+}
+
+// 상태 배지만으로는 "그래서 지금 누가 뭘 해야 하나"를 알 수 없다. 한 문장으로 적어준다.
+const NEXT_STEP_TEXT = {
+  write:   "아직 제출 전입니다. 내용을 채워 제출하면 계열사 검토로 넘어갑니다.",
+  fix:     "보완 요청을 받았습니다. 의견을 반영해 다시 제출해주세요.",
+  review:  "검토할 차례입니다. 지표와 목표값을 보고 합의하거나 보완을 요청하세요.",
+  approve: "최종 확정할 차례입니다. 계열사 합의를 마친 목표입니다."
+};
+function renderNextStep() {
+  const el = document.getElementById("next-step");
+  const turn = myTurnKind(PROFILE, GOAL);
+  if (turn) {
+    el.innerHTML = `<p class="next-step next-step-mine"><b>내 차례</b> · ${NEXT_STEP_TEXT[turn]}</p>`;
+    return;
   }
-  const canReviewNow = (isCompanyStaff(PROFILE) && GOAL.status === "submitted")
-                    || (isHoldcoEditor(PROFILE) && GOAL.status === "company_approved");
-  if (canReviewNow) {
-    actions.push(`<a href="review.html?goal=${GOAL.id}" class="text-sm bg-blue-600 text-white rounded px-3 py-1.5">검토하기</a>`);
-  }
-  if (canDeleteGoal(PROFILE, GOAL)) {
-    actions.push(`<button onclick="deleteThisGoal()" class="text-sm bg-white border border-red-300 text-red-600 rounded px-3 py-1.5 hover:bg-red-50">삭제</button>`);
-  }
-  document.getElementById("header-actions").innerHTML = actions.join("");
+  const waiting = {
+    submitted: "계열사 담당자의 검토를 기다리는 중입니다.",
+    company_approved: "지주사의 최종 확정을 기다리는 중입니다.",
+    revision_requested: "작성자가 보완해서 다시 내기를 기다리는 중입니다.",
+    draft: "아직 제출되지 않은 목표입니다.",
+    approved: "확정된 목표입니다. 이제 실적을 채워 나가면 됩니다.",
+    locked: "마감된 목표입니다. 내용을 바꾸려면 변경요청을 올려야 합니다."
+  }[GOAL.status];
+  el.innerHTML = waiting ? `<p class="next-step">${waiting}</p>` : "";
+}
+
+// SMART 서술 — 목록 화면의 펼침 패널과 같은 세로 배열을 쓴다 (화면마다 표기가 달라지지 않게)
+function renderSmart() {
+  const filled = SMART_FIELDS.filter(f => GOAL[f.key] && String(GOAL[f.key]).trim());
+  const extra = [
+    GOAL.follow_up_action && String(GOAL.follow_up_action).trim() ? { label: "후속조치", value: GOAL.follow_up_action } : null,
+    GOAL.remarks && String(GOAL.remarks).trim() ? { label: "비고", value: GOAL.remarks } : null
+  ].filter(Boolean);
+
+  document.getElementById("smart-count").textContent =
+    filled.length ? `${filled.length}/5 작성됨` : "비어 있음";
+
+  document.getElementById("smart-root").innerHTML = (filled.length || extra.length)
+    ? `<dl class="smart-list">
+        ${filled.map(f => `<div><dt>${smartLabelHtml(f)}</dt><dd>${textBlockHtml(GOAL[f.key])}</dd></div>`).join("")}
+        ${extra.map(x => `<div><dt><span class="letter-badge">·</span>${escapeHtml(x.label)}</dt><dd>${textBlockHtml(x.value)}</dd></div>`).join("")}
+      </dl>`
+    : `<p class="text-[12.5px]" style="color:var(--text-tertiary)">SMART 내용이 아직 비어 있습니다.${
+        canEditGoal(PROFILE, GOAL) ? ` <a href="goal-form.html?id=${GOAL.id}" class="smart-more !mt-0">작성하기 ›</a>` : ""
+      }</p>`;
+
+  // 작성·보완할 차례면 펼친 채로 연다 (그때는 서술이 주인공이다)
+  const turn = myTurnKind(PROFILE, GOAL);
+  document.getElementById("smart-wrap").open = (turn === "write" || turn === "fix" || turn === "review" || turn === "approve");
 }
 
 // 임시저장 목표 삭제 후 목록으로 이동
 async function deleteThisGoal() {
   if (await confirmAndDeleteGoal(GOAL)) {
-    alert("삭제되었습니다.");
+    toastOk("삭제되었습니다.");
     window.location.href = "goals.html";
   }
 }
@@ -119,7 +212,7 @@ async function withdrawSubmission() {
   const nextLabel = STATUS_LABEL[nextStatus];
   if (!confirm(`제출을 취소하고 '${nextLabel}' 상태로 되돌릴까요?`)) return;
   const { error: e1 } = await sb.from("goals").update({ status: nextStatus }).eq("id", GOAL.id);
-  if (e1) { alert("취소 실패: " + e1.message); return; }
+  if (e1) { toastError("취소 실패: " + e1.message); return; }
   const { error: e2 } = await sb.from("goal_reviews").insert({ goal_id: GOAL.id, action: "withdraw", reviewer_id: PROFILE.id, comment: "담당자 제출취소" });
   if (e2) console.error(e2);
   await load();
@@ -195,7 +288,13 @@ async function loadPreviousYearSummary(metrics) {
 async function loadMetrics() {
   const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", GOAL_ID);
   const root = document.getElementById("metrics-root");
-  if (!metrics || metrics.length === 0) { root.innerHTML = `<p class="text-sm text-slate-400">등록된 지표가 없습니다.</p>`; return; }
+  if (!metrics || metrics.length === 0) {
+    root.innerHTML = `<p class="text-sm" style="color:var(--text-tertiary)">등록된 지표가 없습니다.${
+      canEditGoal(PROFILE, GOAL) ? ` <a href="goal-form.html?id=${GOAL.id}" class="smart-more !mt-0">지표 추가하기 ›</a>` : ""
+    }</p>`;
+    renderSummary(null);
+    return;
+  }
 
   const metricIds = metrics.map(m => m.id);
   const prevSummary = await loadPreviousYearSummary(metrics);
@@ -207,6 +306,9 @@ async function loadMetrics() {
     periodTargetsByKey[pt.goal_metric_id + "|" + pt.period] = pt.target_value;
     metricsWithPeriodTargets.add(pt.goal_metric_id);
   });
+
+  // 한눈 요약에 쓸 값을 모은다 (지표 카드를 그리면서 같이 센다)
+  const summary = { count: metrics.length, rates: [], filled: 0, total: 0, overdue: 0, noTarget: 0 };
 
   root.innerHTML = metrics.map(m => {
     const entriesAsc = (progress||[]).filter(p => p.goal_metric_id === m.id);
@@ -220,6 +322,19 @@ async function loadMetrics() {
     const pace = progressSubText(m, entriesAsc, GOAL.year);
     const targetWarning = targetConsistencyWarning(m, ptMap, GOAL.year);
     const isNumeric = (m.metric_type === 'increasing' || m.metric_type === 'decreasing');
+
+    // ---- 요약 집계 ----
+    const periodsOfMetric = periodsForYear(GOAL.year, m.period_type);
+    const hasEntry = {};
+    entriesAsc.forEach(e => {
+      if ((e.actual_value !== null && e.actual_value !== undefined) ||
+          (e.milestone_achieved !== null && e.milestone_achieved !== undefined)) hasEntry[e.period] = true;
+    });
+    if (rate !== null) summary.rates.push(rate);
+    summary.total += periodsOfMetric.length;
+    summary.filled += periodsOfMetric.filter(p => hasEntry[p]).length;
+    summary.overdue += overduePeriods(m.period_type, GOAL.year, p => !!hasEntry[p]).length;
+    if (isNumeric && (m.target_value === null || m.target_value === undefined) && !metricsWithPeriodTargets.has(m.id)) summary.noTarget++;
     const history = entriesAsc.map(p => {
       const effTarget = periodTargetsByKey[m.id + "|" + p.period] ?? m.target_value;
       const targetDisplay = (isNumeric && effTarget !== null && effTarget !== undefined) ? ` <span class="text-slate-400 font-normal">/ 목표 ${effTarget}${m.unit||''}</span>` : '';
@@ -236,7 +351,7 @@ async function loadMetrics() {
     if (m.metric_type === 'milestone') targetHint = '완료 여부로 관리되는 정성 지표입니다';
     else if (m.metric_type === 'qualitative') targetHint = '담당자가 매 기간 진척도(%)를 자가평가하는 정성 지표입니다';
     else {
-      const parts = [`기준값 ${m.baseline_value ?? '-'}`];
+      const parts = [`시작값 ${m.baseline_value ?? '-'}`];
       if (m.target_value !== null && m.target_value !== undefined) parts.push(`연간 목표값 ${m.target_value}`);
       if (metricsWithPeriodTargets.has(m.id)) parts.push('기간별 목표값 설정됨');
       targetHint = parts.join(' → ') + ` ${m.unit || ''}`;
@@ -260,12 +375,46 @@ async function loadMetrics() {
     </div>`;
   }).join("");
 
+  renderSummary(summary);
+
   // HTML을 붙인 뒤에 차트를 그린다 (canvas가 DOM에 있어야 하므로)
   metrics.forEach(m => {
     const entriesAsc = (progress||[]).filter(p => p.goal_metric_id === m.id);
     CHART_DATA[m.id] = buildChartData(m, entriesAsc, periodTargetsByKey);
     renderMetricChart(m.id, "cumulative");
   });
+}
+
+// 지표가 서너 개면 카드를 다 읽어야 전체 상태를 알 수 있었다.
+// "지금 어떤가"를 네 숫자로 먼저 보여주고, 자세한 건 아래 카드에서 보게 한다.
+// 달성률은 지표별 달성률의 단순 평균이다 — 지표마다 단위가 달라 합산할 수 없고,
+// 가중치를 임의로 매기면 그 근거를 설명할 수 없기 때문이다. 그 점을 화면에도 적어둔다.
+function renderSummary(s) {
+  const el = document.getElementById("summary-strip");
+  if (!s || !s.count) { el.innerHTML = ""; return; }
+
+  const avg = s.rates.length
+    ? Math.round((s.rates.reduce((a, b) => a + b, 0) / s.rates.length) * 10) / 10
+    : null;
+
+  const tile = (label, value, sub, cls) => `
+    <div class="detail-tile">
+      <p class="tile-label">${label}</p>
+      <p class="tile-value ${cls || ""}">${value}</p>
+      <p class="tile-sub">${sub || ""}</p>
+    </div>`;
+
+  el.innerHTML = `<div class="detail-summary">
+    ${tile("달성률", avg === null ? "–" : avg + "%",
+        avg === null ? "실적 입력 전" : `지표 ${s.rates.length}개 평균`,
+        avg === null ? "" : (avg >= 90 ? "ink-good" : avg >= 60 ? "ink-warn" : "ink-risk"))}
+    ${tile("핵심지표", s.count + "개", s.noTarget ? `목표값 미설정 ${s.noTarget}개` : "목표값 모두 설정됨",
+        s.noTarget ? "ink-warn" : "")}
+    ${tile("실적 입력", `${s.filled}/${s.total}`, "기간")}
+    ${tile("마감 지난 미입력", s.overdue + "칸",
+        s.overdue ? `<a href="progress.html?goal=${GOAL.id}">지금 입력 ›</a>` : "밀린 입력 없음",
+        s.overdue ? "ink-risk" : "")}
+  </div>`;
 }
 
 // ---- KPI 달성 차트 ----
@@ -288,10 +437,8 @@ function milestoneTimelineHtml(m, entries) {
     <div class="flex flex-wrap gap-1.5">
       ${periods.map(p => {
         const v = byPeriod[p];
-        const style = v === true ? "background:#e7f5ec;color:#2f9e5b;border-color:#2f9e5b"
-                    : v === false ? "background:#fbeae7;color:#c94a3c;border-color:#e6b5ad"
-                    : "background:transparent;color:#c7c7cc;border-color:#e5e5ea";
-        return `<span class="text-[10px] px-1.5 py-0.5 rounded border" style="${style}">${periodShortLabel(p)}</span>`;
+        const cls = v === true ? "ms-done" : v === false ? "ms-miss" : "ms-empty";
+        return `<span class="ms-chip ${cls}">${periodShortLabel(p)}</span>`;
       }).join("")}
     </div>
   </div>`;
@@ -337,7 +484,7 @@ function buildChartData(m, entries, periodTargetsByKey) {
   } else if (annual !== null) {
     // 기간별 목표가 없으면 공용 규칙(referencePeriodTarget)으로 참고선을 만든다 (실제 설정값이 아님을 명시)
     targets = periods.map((_, i) => referencePeriodTarget(m, i, periods.length));
-    targetNote = acc === "latest" ? "기준값→목표값 균등 진행(참고)"
+    targetNote = acc === "latest" ? "시작값→목표값 균등 진행(참고)"
                : acc === "average" ? "연간 목표 수준 유지(참고)"
                : "연간 목표 균등 배분(참고)";
   } else {
@@ -410,7 +557,9 @@ function renderMetricChart(metricId, mode) {
   if (CHART_INSTANCES[metricId]) CHART_INSTANCES[metricId].destroy();
 
   // 감소형은 실적이 목표보다 낮아야 좋은 지표라 색 기준을 반대로 잡는다
-  const good = "#2f9e5b", bad = "#c94a3c", targetColor = "#8e8e93";
+  // 색은 design.css의 토큰에서 꺼내 쓴다 (화면과 차트의 색이 어긋나지 않게)
+  const C = chartColors();
+  const good = C.good, bad = C.risk, targetColor = C.inkFaint;
   const labels = d.periods.map(periodShortLabel);
   const fmt = (v) => v === null ? "-" : Number(v).toLocaleString() + (d.unit ? " " + d.unit : "");
 
@@ -428,12 +577,12 @@ function renderMetricChart(metricId, mode) {
         labels,
         datasets: [
           { label: runningLabel(d.accumulation, "목표"), data: d.cumTargets, borderColor: targetColor, borderDash: d.targetNote.includes("참고") ? [5, 4] : [], pointRadius: 0, tension: .2, spanGaps: true },
-          { label: runningLabel(d.accumulation, "실적"), data: d.cumActuals, borderColor: good, backgroundColor: "rgba(47,158,91,.08)", fill: true, tension: .2, spanGaps: false }
+          { label: runningLabel(d.accumulation, "실적"), data: d.cumActuals, borderColor: good, backgroundColor: C.goodFill, fill: true, tension: .2, spanGaps: false }
         ].concat(
           // 기간별 목표의 합이 연간 목표와 다를 때만 연간 목표 기준선을 따로 그린다 (같으면 누적 목표선과 겹침)
           (d.annual !== null && Math.abs((d.cumTargets[d.cumTargets.length - 1] ?? 0) - d.annual) > 0.001)
             ? [{ label: `연간 목표 ${d.annual.toLocaleString()}`, data: d.periods.map(() => d.annual),
-                 borderColor: "#c98a1f", borderDash: [3, 3], borderWidth: 1, pointRadius: 0, fill: false }]
+                 borderColor: C.warn, borderDash: [3, 3], borderWidth: 1, pointRadius: 0, fill: false }]
             : []
         )
       },
@@ -442,7 +591,7 @@ function renderMetricChart(metricId, mode) {
   } else {
     const barColors = d.actuals.map((v, i) => {
       const t = d.targets[i];
-      if (v === null || t === null || t === undefined) return "#4c6fa5";
+      if (v === null || t === null || t === undefined) return C.info;
       const ok = d.metricType === "decreasing" ? v <= t : v >= t;
       return ok ? good : bad;
     });
@@ -451,7 +600,7 @@ function renderMetricChart(metricId, mode) {
       data: {
         labels,
         datasets: [
-          { label: "목표", data: d.targets, backgroundColor: "#d7dae0", borderRadius: 2 },
+          { label: "목표", data: d.targets, backgroundColor: C.target, borderRadius: 2 },
           { label: "실적", data: d.actuals, backgroundColor: barColors, borderRadius: 2 }
         ]
       },
@@ -479,14 +628,83 @@ function baseOptions(fmt, scaleExtra) {
 async function loadReviews() {
   const { data: reviews } = await sb.from("goal_reviews").select("*, reviewer:reviewer_id(name,email)").eq("goal_id", GOAL_ID).order("created_at", { ascending: false });
   const root = document.getElementById("reviews-root");
+  const rows = reviews || [];
   const labelMap = REVIEW_ACTION_LABEL;
-  root.innerHTML = (reviews||[]).map(r => `
-    <div class="flex items-start gap-2 border-b border-slate-100 pb-2">
-      <span class="text-xs text-slate-400 whitespace-nowrap">${new Date(r.created_at).toLocaleString('ko-KR')}</span>
-      <span class="font-medium">${labelMap[r.action]||r.action}</span>
-      <span class="text-slate-500">${r.reviewer ? escapeHtml(r.reviewer.name||r.reviewer.email) : ''}</span>
-      <span class="text-slate-600">${escapeHtml(r.comment||'')}</span>
-    </div>`).join("") || `<p class="text-sm text-slate-400">이력이 없습니다.</p>`;
+  document.getElementById("reviews-count").textContent = rows.length ? `${rows.length}건` : "없음";
+
+  // 보완 요청 의견은 접어 두면 정작 읽어야 할 사람이 못 본다. 그 상태일 때는 펼친 채로 연다.
+  document.getElementById("reviews-wrap").open = (GOAL.status === "revision_requested");
+
+  root.innerHTML = rows.map(r => `
+    <div class="flex items-start gap-2 border-b pb-2" style="border-color:var(--border)">
+      <span class="text-xs whitespace-nowrap" style="color:var(--text-tertiary)">${new Date(r.created_at).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+      <span class="font-medium whitespace-nowrap">${labelMap[r.action]||r.action}</span>
+      <span style="color:var(--text-tertiary)">${r.reviewer ? escapeHtml(r.reviewer.name||r.reviewer.email) : ''}</span>
+      <span style="color:var(--text-secondary)">${escapeHtml(r.comment||'')}</span>
+    </div>`).join("") || `<p class="text-sm" style="color:var(--text-tertiary)">아직 검토 이력이 없습니다.</p>`;
+}
+
+// ============================================================
+//  변경 이력
+// ============================================================
+// 지금까지는 변경요청을 거친 수정만 기록이 남았다. 작성 중에 목표값을 바꾼 것,
+// 검토 중에 고친 것은 흔적이 없어 "누가 언제 바꿨나"를 따질 수 없었다.
+// goal_change_log는 DB 트리거가 적으므로 화면에서 우회할 수 없다.
+const HISTORY_FIELD_LABEL = {
+  status: "상태",
+  strategy_name: "전략(목표) 이름",
+  metric_name: "지표명",
+  target_value: "올해 목표값",
+  baseline_value: "시작값",
+  unit: "단위",
+  period_type: "입력 주기",
+  accumulation: "집계 방식",
+  period_target: "기간별 목표값",
+  period_target_removed: "기간별 목표값 삭제",
+  metric_added: "지표 추가",
+  metric_removed: "지표 삭제"
+};
+
+// 값은 저장된 그대로(text)라서, 사람이 읽는 말로 바꿔준다
+function historyValue(field, raw) {
+  if (raw === null || raw === undefined || raw === "") return "";
+  if (field === "status") return STATUS_LABEL[raw] || raw;
+  if (field === "period_type") return PERIOD_TYPE_LABEL[raw] || raw;
+  if (field === "accumulation") return ACCUMULATION_SHORT[raw] || raw;
+  const n = Number(raw);
+  return isNaN(n) ? String(raw) : n.toLocaleString();
+}
+
+async function loadHistory() {
+  const { data, error } = await sb.from("goal_change_log")
+    .select("*, changer:changed_by(name,email)")
+    .eq("goal_id", GOAL_ID).order("changed_at", { ascending: false }).limit(200);
+  const root = document.getElementById("history-root");
+  const countEl = document.getElementById("history-count");
+  if (error) { root.innerHTML = `<p class="text-sm text-slate-400">이력을 불러오지 못했습니다.</p>`; return; }
+
+  const rows = data || [];
+  countEl.textContent = rows.length ? `${rows.length}건` : "없음";
+  if (!rows.length) {
+    root.innerHTML = `<p class="text-sm text-slate-400">아직 바뀐 내용이 없습니다. 지금부터의 변경이 여기에 쌓입니다.</p>`;
+    return;
+  }
+
+  root.innerHTML = `<table class="metric-table">
+    <thead><tr><th>언제</th><th>누가</th><th>무엇을</th><th>변경 전</th><th>변경 후</th></tr></thead>
+    <tbody>${rows.map(r => {
+      const label = HISTORY_FIELD_LABEL[r.field] || r.field;
+      const where = [r.metric_name, r.period ? periodDisplayLabel(r.period) : ""].filter(Boolean).join(" · ");
+      const before = historyValue(r.field, r.old_value);
+      const after = historyValue(r.field, r.new_value);
+      return `<tr>
+        <td class="whitespace-nowrap" style="color:var(--text-secondary)">${new Date(r.changed_at).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })}</td>
+        <td class="whitespace-nowrap" style="color:var(--text-secondary)">${r.changer ? escapeHtml(r.changer.name || r.changer.email) : "-"}</td>
+        <td>${escapeHtml(label)}${where ? `<div class="text-[11px]" style="color:var(--text-tertiary)">${escapeHtml(where)}</div>` : ""}</td>
+        <td class="num" style="color:var(--text-tertiary)">${escapeHtml(before) || "-"}</td>
+        <td class="num" style="color:var(--text-primary);font-weight:600">${escapeHtml(after) || "-"}</td>
+      </tr>`;
+    }).join("")}</tbody></table>`;
 }
 </script>
 </body>

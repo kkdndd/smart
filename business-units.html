@@ -13,7 +13,7 @@
 <div id="nav-root"></div>
 <div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
   <div class="flex items-center justify-between gap-3 flex-wrap">
-    <h1 class="text-lg font-bold text-slate-800">사업부 관리</h1>
+    <h1 class="page-title">사업부 관리</h1>
     <div id="company-filter" class="hidden items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg pl-3 pr-2 py-1">
       <label for="company-select" class="text-xs font-semibold text-amber-700 whitespace-nowrap">회사</label>
       <select id="company-select" class="border border-amber-300 rounded px-2 py-1 text-sm font-semibold text-amber-800 bg-white"></select>
@@ -29,7 +29,7 @@
     </p>
     <div class="flex gap-2">
       <input id="new-bu-name" placeholder="새 사업부명 (예: 온채널)" class="flex-1 border border-slate-300 rounded px-3 py-2 text-sm" />
-      <button id="add-btn" class="bg-[#3a4356] text-white text-sm rounded px-4 py-2 hover:bg-[#2c3342] whitespace-nowrap">+ 사업부 등록</button>
+      <button id="add-btn" class="btn btn-primary !text-sm whitespace-nowrap">+ 사업부 등록</button>
     </div>
     <p id="add-msg" class="text-xs mt-2 hidden"></p>
   </div>
@@ -59,7 +59,7 @@ let PROFILE, COMPANY_ID = null, UNITS = [];
   if (!canManageBusinessUnits(PROFILE)) {
     document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return;
   }
-  renderNav(PROFILE, "bu");
+  renderNav(PROFILE, "settings");
 
   if (isHoldcoEditor(PROFILE)) {
     const { data: companies } = await sb.from("companies").select("id,name,is_holding").eq("is_active", true).order("is_holding", { ascending: false }).order("name");
@@ -122,7 +122,7 @@ async function load() {
           <span class="text-[11px] text-slate-400">까지</span>
           <button onclick="saveRange('${u.id}')" class="text-[11px] text-slate-700 underline ml-1">적용</button>
         </div>
-        <span class="badge ${visibleNow ? 'bg-[#e7f5ec] text-[#2f9e5b]' : 'bg-[#f0f0f2] text-[#a1a1a6]'}">${activeRangeLabel(u)}</span>
+        <span class="badge ${visibleNow ? 'badge-on' : 'badge-off'}">${activeRangeLabel(u)}</span>
         <span class="text-[10px] text-slate-400 ml-1">${getSelectedYear()}년 ${visibleNow ? '노출' : '미노출'}</span>
       </td>
       <td class="py-2 px-3 text-right whitespace-nowrap">
@@ -146,12 +146,12 @@ async function saveRange(id) {
   const tr = document.querySelector(`tr[data-id="${id}"]`);
   const from = tr.querySelector(".from-year").value;
   const to = tr.querySelector(".to-year").value;
-  if (from && to && Number(from) > Number(to)) { alert("시작 연도가 종료 연도보다 늦을 수 없습니다."); return; }
+  if (from && to && Number(from) > Number(to)) { toastError("시작 연도가 종료 연도보다 늦을 수 없습니다."); return; }
 
   const { error } = await sb.from("business_units")
     .update({ active_from_year: from ? Number(from) : null, active_to_year: to ? Number(to) : null })
     .eq("id", id);
-  if (error) { alert("저장 실패: " + error.message); return; }
+  if (error) { toastError("저장 실패: " + error.message); return; }
   await load();
 }
 
@@ -161,7 +161,7 @@ async function toggleActive(id) {
   const next = !u.is_active;
   if (next === false && !confirm(`'${u.name}' 사업부를 모든 연도에서 숨길까요?\n입력된 목표·실적 데이터는 그대로 유지되지만, 과거 연도 화면에서도 보이지 않게 됩니다.\n\n과거 실적을 계속 보려면 '표시 기간'의 종료 연도를 지정하세요.`)) return;
   const { error } = await sb.from("business_units").update({ is_active: next }).eq("id", id);
-  if (error) { alert("변경 실패: " + error.message); return; }
+  if (error) { toastError("변경 실패: " + error.message); return; }
   await load();
 }
 
@@ -194,26 +194,26 @@ async function addUnit() {
 async function renameUnit(id) {
   const tr = document.querySelector(`tr[data-id="${id}"]`);
   const name = tr.querySelector(".bu-name").value.trim();
-  if (!name) { alert("사업부명을 입력해주세요."); return; }
+  if (!name) { toastError("사업부명을 입력해주세요."); return; }
   const norm = normalizeName(name);
   if (UNITS.some(u => u.id !== id && normalizeName(u.name) === norm)) {
-    alert("같은 이름의 사업부가 이미 있습니다. 병합 기능을 사용해주세요.");
+    toastError("같은 이름의 사업부가 이미 있습니다. 병합 기능을 사용해주세요.");
     return;
   }
   const { error } = await sb.from("business_units").update({ name }).eq("id", id);
-  if (error) { alert(error.code === "23505" ? "같은 이름의 사업부가 이미 있습니다." : "저장 실패: " + error.message); return; }
+  if (error) { toastError(error.code === "23505" ? "같은 이름의 사업부가 이미 있습니다." : "저장 실패: " + error.message); return; }
   await load();
 }
 
 async function mergeUnit(sourceId) {
   const tr = document.querySelector(`tr[data-id="${sourceId}"]`);
   const targetId = tr.querySelector(".merge-target").value;
-  if (!targetId) { alert("병합할 대상 사업부를 선택해주세요."); return; }
+  if (!targetId) { toastError("병합할 대상 사업부를 선택해주세요."); return; }
   const source = UNITS.find(u => u.id === sourceId), target = UNITS.find(u => u.id === targetId);
   if (!confirm(`'${source.name}'의 목표와 담당자를 '${target.name}'(으)로 모두 옮기고, '${source.name}'은 삭제합니다.\n이 작업은 되돌릴 수 없습니다. 진행할까요?`)) return;
 
   const { error } = await sb.rpc("merge_business_unit", { p_source: sourceId, p_target: targetId });
-  if (error) { alert("병합 실패: " + error.message); return; }
+  if (error) { toastError("병합 실패: " + error.message); return; }
   await load();
 }
 
@@ -221,7 +221,7 @@ async function deleteUnit(id) {
   const unit = UNITS.find(u => u.id === id);
   if (!confirm(`'${unit.name}' 사업부를 삭제할까요?`)) return;
   const { error } = await sb.from("business_units").delete().eq("id", id);
-  if (error) { alert("삭제 실패: " + error.message); return; }
+  if (error) { toastError("삭제 실패: " + error.message); return; }
   await load();
 }
 </script>

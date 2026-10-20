@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>검토/합의 | 대교홀딩스 SMART</title>
+<title>검토 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="stylesheet" href="js/design.css" />
@@ -11,90 +11,304 @@
 </head>
 <body class="min-h-screen">
 <div id="nav-root"></div>
-<div class="max-w-5xl mx-auto px-4 py-6 space-y-4">
+
+<div class="max-w-4xl mx-auto px-4 py-7 space-y-4">
   <div>
-    <h1 class="text-lg font-bold text-slate-800" id="page-title">검토/합의 대기 목표</h1>
-    <p class="text-xs text-slate-500 mt-1" id="page-desc"></p>
+    <h1 class="page-title" id="page-title">검토</h1>
+    <p class="page-sub" id="page-desc"></p>
   </div>
-  <div id="list-root" class="space-y-3"></div>
+  <div id="intro-root"></div>
+  <div id="list-root" class="space-y-4"></div>
 </div>
 
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, QUEUE_STATUS;
+let PROFILE, QUEUE_STATUS, YEAR = getSelectedYear();
+let METRICS_BY_GOAL = {};      // goal_id → goal_metrics[]
+let PERIOD_TARGETS = {};       // metric_id → { period: value }
+let LAST_YEAR = {};            // kpi_definition_id → { target, actual }
+
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
   if (!isCompanyStaff(PROFILE) && !isHoldcoEditor(PROFILE)) {
     document.body.innerHTML = "<p class='p-6 text-red-600'>접근 권한이 없습니다.</p>"; return;
   }
-  renderNav(PROFILE, "review");
+  renderNav(PROFILE, "plan");
+
   // 계열사 담당자는 사업부가 올린 목표를, 지주사 담당자는 계열사가 합의한 목표를 검토한다
   QUEUE_STATUS = isCompanyStaff(PROFILE) ? "submitted" : "company_approved";
-  document.getElementById("page-title").textContent = isCompanyStaff(PROFILE) ? "사업부 제출 목표 검토" : "지주사 최종 검토/합의";
-  document.getElementById("page-desc").textContent = isCompanyStaff(PROFILE)
-    ? "합의하면 지주사 검토 단계로 넘어가고, 수정요청하면 사업부 담당자에게 되돌아갑니다."
-    : "계열사 담당자가 합의해 올린 목표입니다. 합의하면 최종 확정됩니다.";
+  document.getElementById("page-title").textContent =
+    isCompanyStaff(PROFILE) ? "사업부가 올린 목표" : "확정을 기다리는 목표";
+  document.getElementById("page-desc").textContent =
+    isCompanyStaff(PROFILE)
+      ? "합의하면 지주사 검토로 넘어갑니다. 고칠 곳이 있으면 수정요청하면 작성자에게 되돌아갑니다."
+      : "계열사가 합의해 올린 목표입니다. 확정하면 더 이상 고칠 수 없습니다.";
+
+  document.getElementById("intro-root").innerHTML = introBannerHtml(
+    "review",
+    "숫자를 보고 합의해주세요",
+    "각 목표 아래에 KPI 지표와 목표값 표가 있습니다. 목표값이 비어 있으면 합의 버튼이 잠깁니다 — 숫자가 없는 목표는 연말에 달성 여부를 판단할 수 없기 때문입니다."
+  );
+
   await load();
 })();
 
 async function load() {
   const { data: goals, error } = await sb.from("goals")
-    .select("*, companies:company_id(name), business_units:business_unit_id(name)")
+    .select("*, companies:company_id(name), business_units:business_unit_id(name), creator:created_by(name,email)")
     .eq("status", QUEUE_STATUS)
+    .eq("year", YEAR)
     .order("created_at");
   if (error) { console.error(error); return; }
 
-  const focusGoal = new URLSearchParams(location.search).get("goal");
+  const list = goals || [];
+  const root = document.getElementById("list-root");
 
-  document.getElementById("list-root").innerHTML = (goals||[]).map(g => `
-    <div class="card p-5 ${focusGoal===g.id?'ring-2 ring-blue-400':''}">
-      <div class="flex items-center justify-between mb-2">
-        <div>
-          <span class="font-semibold text-slate-800">${escapeHtml(g.companies.name)} · ${escapeHtml(g.business_units?g.business_units.name:'')}</span>
-          <span class="ml-2 text-slate-600">${escapeHtml(g.strategy_name)}</span>
+  if (!list.length) {
+    root.innerHTML = emptyStateHtml(
+      "검토할 목표가 없습니다",
+      isCompanyStaff(PROFILE)
+        ? "사업부에서 목표를 제출하면 여기에 쌓입니다."
+        : "계열사에서 합의해 올리면 여기에 쌓입니다.",
+      [{ label: "전체 목록 보기", href: "goals.html" }]
+    );
+    return;
+  }
+
+  await loadMetricContext(list.map(g => g.id));
+
+  const focusGoal = new URLSearchParams(location.search).get("goal");
+  root.innerHTML = list.map(g => cardHtml(g, focusGoal === g.id)).join("");
+}
+
+// 검토에 필요한 숫자를 한꺼번에 읽는다: 지표, 기간별 목표, 작년 같은 지표의 목표·실적
+async function loadMetricContext(goalIds) {
+  METRICS_BY_GOAL = {}; PERIOD_TARGETS = {}; LAST_YEAR = {};
+  if (!goalIds.length) return;
+
+  const { data: metrics } = await sb.from("goal_metrics")
+    .select("*, kpi_definitions:kpi_definition_id(name,unit)").in("goal_id", goalIds);
+  (metrics || []).forEach(m => {
+    (METRICS_BY_GOAL[m.goal_id] = METRICS_BY_GOAL[m.goal_id] || []).push(m);
+  });
+
+  const metricIds = (metrics || []).map(m => m.id);
+  if (metricIds.length) {
+    const { data: pts } = await sb.from("goal_period_targets")
+      .select("goal_metric_id,period,target_value").in("goal_metric_id", metricIds);
+    (pts || []).forEach(p => {
+      (PERIOD_TARGETS[p.goal_metric_id] = PERIOD_TARGETS[p.goal_metric_id] || {})[p.period] = p.target_value;
+    });
+  }
+
+  // 작년 같은 KPI의 목표·실적 — 목표값이 과한지 안일한지 판단할 근거
+  const kpiIds = [...new Set((metrics || []).map(m => m.kpi_definition_id).filter(Boolean))];
+  if (!kpiIds.length) return;
+  const { data: prevMetrics } = await sb.from("goal_metrics")
+    .select("id,kpi_definition_id,target_value,period_type,accumulation,metric_type,baseline_value,goals:goal_id(year)")
+    .in("kpi_definition_id", kpiIds);
+  const prev = (prevMetrics || []).filter(m => m.goals && m.goals.year === YEAR - 1);
+  if (!prev.length) return;
+
+  const prevIds = prev.map(m => m.id);
+  const { data: prevEntries } = await sb.from("progress_entries")
+    .select("goal_metric_id,period,actual_value").in("goal_metric_id", prevIds).order("period");
+  const byMetric = {};
+  (prevEntries || []).forEach(e => { (byMetric[e.goal_metric_id] = byMetric[e.goal_metric_id] || []).push(e); });
+
+  prev.forEach(m => {
+    LAST_YEAR[m.kpi_definition_id] = {
+      target: m.target_value,
+      actual: annualActual(m, byMetric[m.id] || [])
+    };
+  });
+}
+
+function fmt(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return isNaN(n) ? String(v) : n.toLocaleString();
+}
+
+// 지표 표 — 검토자가 "무엇에 합의하는지"를 숫자로 보게 한다
+function metricTableHtml(goal) {
+  const list = METRICS_BY_GOAL[goal.id] || [];
+  if (!list.length) {
+    return `<div class="block-note"><span>⚠</span><span>KPI 지표가 하나도 없습니다. 달성 여부를 잴 수 없는 목표입니다.</span></div>`;
+  }
+  const rows = list.map(m => {
+    const name = metricNameOf(m);
+    const unit = m.unit || (m.kpi_definitions && m.kpi_definitions.unit) || "";
+    const quantitative = m.metric_type === "increasing" || m.metric_type === "decreasing";
+    const ptMap = PERIOD_TARGETS[m.id] || {};
+    const ptCount = Object.keys(ptMap).length;
+    const annual = fmt(m.target_value);
+    const prev = m.kpi_definition_id ? LAST_YEAR[m.kpi_definition_id] : null;
+
+    let targetCell;
+    if (!quantitative) {
+      targetCell = `<span style="color:var(--text-secondary)">${m.metric_type === "milestone" ? "완료 여부" : "진척도(%)"}</span>`;
+    } else if (annual) {
+      targetCell = `<b>${annual}</b>${unit ? ` <span style="color:var(--text-tertiary)">${escapeHtml(unit)}</span>` : ""}`;
+    } else if (ptCount) {
+      targetCell = `<span style="color:var(--text-secondary)">기간별 ${ptCount}개 설정</span>`;
+    } else {
+      targetCell = `<span class="missing">목표값 없음</span>`;
+    }
+
+    const unitCell = quantitative && !unit
+      ? `<span class="missing">단위 없음</span>`
+      : escapeHtml(unit || "-");
+
+    const prevCell = prev
+      ? `${prev.target !== null && prev.target !== undefined ? `목표 ${fmt(prev.target)}` : "목표 -"}${prev.actual !== null ? ` · 실적 ${fmt(prev.actual)}` : ""}`
+      : `<span style="color:var(--text-tertiary)">-</span>`;
+
+    return `<tr>
+      <td>${escapeHtml(name)}</td>
+      <td style="color:var(--text-secondary)">${escapeHtml((METRIC_TYPE_LABEL[m.metric_type] || "").split(" (")[0])}</td>
+      <td style="color:var(--text-secondary)">${escapeHtml(ACCUMULATION_SHORT[accumulationOf(m)] || "")} · ${escapeHtml(PERIOD_TYPE_LABEL[m.period_type] || "")}</td>
+      <td class="num">${fmt(m.baseline_value) || "-"}</td>
+      <td class="num">${targetCell}</td>
+      <td>${unitCell}</td>
+      <td style="color:var(--text-secondary);font-size:11.5px">${prevCell}</td>
+    </tr>`;
+  }).join("");
+
+  return `<table class="metric-table">
+    <thead><tr>
+      <th>KPI 지표</th><th>방향</th><th>집계 · 주기</th>
+      <th class="num">시작값</th><th class="num">${YEAR}년 목표</th><th>단위</th><th>${YEAR - 1}년</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// 합의를 막아야 하는 사유와, 막지는 않지만 짚어줄 사유를 나눈다
+function checkGoal(goal) {
+  const list = METRICS_BY_GOAL[goal.id] || [];
+  const blockers = [], warnings = [];
+
+  if (!list.length) blockers.push("KPI 지표가 없습니다");
+  list.forEach(m => {
+    const name = metricNameOf(m) || "지표";
+    const quantitative = m.metric_type === "increasing" || m.metric_type === "decreasing";
+    if (!quantitative) return;
+    const ptMap = PERIOD_TARGETS[m.id] || {};
+    const hasAnnual = m.target_value !== null && m.target_value !== undefined && m.target_value !== "";
+    if (!hasAnnual && !Object.keys(ptMap).length) blockers.push(`${name}: 목표값이 없습니다`);
+    if (!m.unit && !(m.kpi_definitions && m.kpi_definitions.unit)) blockers.push(`${name}: 단위가 없습니다`);
+    const w = targetConsistencyWarning(m, ptMap, YEAR);
+    if (w) warnings.push(`${name}: ${w}`);
+  });
+
+  // SMART 칸이 비어 있으면 합의를 막지는 않되 반드시 눈에 띄게 알린다.
+  // (예전에 제출된 목표는 A·R·T 없이 올라왔을 수 있으므로 차단하지 않는다)
+  const emptySmart = SMART_FIELDS.filter(f => !goal[f.key] || !String(goal[f.key]).trim());
+  if (emptySmart.length) {
+    warnings.push(`SMART 칸이 비어 있습니다: ${emptySmart.map(f => `${f.letter}·${f.label}`).join(", ")}`);
+  }
+  return { blockers, warnings };
+}
+
+// 목록의 펼침 패널과 같은 세로 배치를 쓴다 (라벨 왼쪽 고정 폭).
+// 같은 내용이 화면마다 다른 모양으로 보이면 읽는 사람이 매번 다시 적응해야 한다.
+function smartHtml(goal) {
+  return `<dl class="smart-list">
+    ${SMART_FIELDS.map(f => {
+      const v = goal[f.key];
+      return `<div>
+        <dt>${smartLabelHtml(f)}</dt>
+        <dd style="color:${v ? 'var(--text-primary)' : 'var(--text-tertiary)'}">${v ? textBlockHtml(v) : "비어 있음"}</dd>
+      </div>`;
+    }).join("")}
+  </dl>`;
+}
+
+function cardHtml(goal, focused) {
+  const { blockers, warnings } = checkGoal(goal);
+  const list = METRICS_BY_GOAL[goal.id] || [];
+  const approveLabel = isCompanyStaff(PROFILE) ? "합의하고 지주사로 올리기" : "최종 확정";
+  const author = goal.creator ? (goal.creator.name || goal.creator.email) : "";
+
+  // 수정요청 대상 고르기 — "어느 지표의 무엇을 고쳐야 하는지"가 작성자 홈에 그대로 전달된다
+  const targetOptions = [`<option value="">목표 전체</option>`]
+    .concat(list.map(m => `<option value="${escapeHtml(metricNameOf(m))}">${escapeHtml(metricNameOf(m))}</option>`)).join("");
+
+  return `<div class="card p-5 ${focused ? 'ring-2 ring-blue-400' : ''}" id="goal-card-${goal.id}">
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div class="min-w-0">
+        <div class="text-[11.5px]" style="color:var(--text-tertiary)">
+          ${escapeHtml(goal.companies.name)} · ${escapeHtml(goal.business_units ? goal.business_units.name : "사업부 미지정")}
+          ${goal.seq_no ? ` · ${goal.seq_no}번` : ""}${author ? ` · 작성 ${escapeHtml(author)}` : ""}
         </div>
-        <a href="goal-detail.html?id=${g.id}" class="text-xs text-slate-500 hover:underline">상세보기</a>
+        <div class="text-[15px] font-semibold mt-0.5" style="color:var(--text-primary)">${escapeHtml(goal.strategy_name)}</div>
       </div>
-      <dl class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 mb-3">
-        <div><b>S</b> ${nl2br(g.specific_text)}</div>
-        <div><b>M</b> ${nl2br(g.measurable_text)}</div>
-        <div><b>A</b> ${nl2br(g.achievable_text)}</div>
-        <div><b>R</b> ${nl2br(g.relevant_text)}</div>
-        <div><b>T</b> ${nl2br(g.timebound_text)}</div>
-      </dl>
-      <textarea id="comment-${g.id}" rows="2" placeholder="검토 의견을 남겨주세요" class="w-full border border-slate-300 rounded px-3 py-2 text-sm mb-2"></textarea>
-      <div class="flex gap-2">
-        ${isCompanyStaff(PROFILE) ? `
-          <button onclick="doReview('${g.id}','company_approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">합의 후 지주사 제출</button>
-          <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">사업부에 수정요청</button>
-        ` : `
-          <button onclick="doReview('${g.id}','approve')" class="text-sm bg-green-600 text-white rounded px-3 py-1.5">최종 합의</button>
-          <button onclick="doReview('${g.id}','request_revision')" class="text-sm bg-amber-500 text-white rounded px-3 py-1.5">수정요청</button>
-          <button onclick="doReview('${g.id}','reject')" class="text-sm bg-red-600 text-white rounded px-3 py-1.5">반려</button>
-        `}
-      </div>
-    </div>`).join("") || `<p class="text-sm text-slate-400">검토 대기중인 목표가 없습니다.</p>`;
+      <a href="goal-detail.html?id=${goal.id}" class="text-[11.5px] shrink-0 underline" style="color:var(--text-secondary)">상세 보기</a>
+    </div>
+
+    <div class="overflow-x-auto mb-3">${metricTableHtml(goal)}</div>
+
+    ${blockers.length ? `<div class="block-note mb-3"><span>⚠</span><span>
+      <b>이대로는 합의할 수 없습니다.</b><br/>${blockers.map(escapeHtml).join("<br/>")}<br/>
+      <span style="opacity:.85">수정요청으로 돌려보내면 작성자 홈에 바로 표시됩니다.</span>
+    </span></div>` : ""}
+
+    ${warnings.length ? `<div class="warn-note mb-3"><span>⚠</span><span>${warnings.map(escapeHtml).join("<br/>")}</span></div>` : ""}
+
+    <details class="mb-3">
+      <summary class="text-[12.5px] cursor-pointer" style="color:var(--text-secondary)">SMART 내용 보기</summary>
+      <div class="mt-3">${smartHtml(goal)}</div>
+    </details>
+
+    <div class="flex flex-col sm:flex-row gap-2 sm:items-center mb-2">
+      <select id="target-${goal.id}" class="border rounded-lg px-2.5 py-2 text-[12.5px] sm:w-44" style="border-color:var(--border)">
+        ${targetOptions}
+      </select>
+      <input id="comment-${goal.id}" placeholder="검토 의견 (수정요청·반려는 필수)"
+        class="flex-1 border rounded-lg px-3 py-2 text-[13px]" style="border-color:var(--border)" />
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+      <button onclick="doReview('${goal.id}','${isCompanyStaff(PROFILE) ? 'company_approve' : 'approve'}')"
+        class="btn btn-primary !text-[13px]" ${blockers.length ? "disabled style='opacity:.4;cursor:not-allowed'" : ""}>
+        ${approveLabel}
+      </button>
+      <button onclick="doReview('${goal.id}','request_revision')" class="btn btn-secondary !text-[13px]">수정요청</button>
+      ${isHoldcoEditor(PROFILE) ? `<button onclick="doReview('${goal.id}','reject')" class="btn btn-secondary !text-[13px]" style="color:var(--red)">반려</button>` : ""}
+    </div>
+  </div>`;
 }
 
 async function doReview(goalId, action) {
-  const comment = document.getElementById("comment-"+goalId).value;
-  // company_approve: 계열사 합의 → 지주사 검토 대기 / request_revision: 이전 작성 단계로 되돌림 / reject: 임시저장으로 반려
+  const comment = document.getElementById("comment-" + goalId).value.trim();
+  const target = document.getElementById("target-" + goalId).value;
+
+  if ((action === "request_revision" || action === "reject") && !comment) {
+    toastError("무엇을 고쳐야 하는지 적어주세요. 작성자에게 그대로 전달됩니다.");
+    return;
+  }
+  if (action === "approve" || action === "company_approve") {
+    const { blockers } = checkGoal({ id: goalId, specific_text: "x" });
+    if (blockers.length) { toastError("목표값·단위가 비어 있어 합의할 수 없습니다."); return; }
+  }
+
+  // 지표를 고른 경우 의견 앞에 붙여 "어디를 고쳐야 하는지"가 남게 한다
+  const fullComment = target ? `[${target}] ${comment}` : comment;
+
   const statusMap = {
     company_approve: "company_approved",
     approve: "approved",
     request_revision: "revision_requested",
     reject: "draft"
   };
-  if (action === "request_revision" && !comment.trim()) {
-    alert("수정요청 사유를 입력해주세요.");
-    return;
-  }
   const { error: e1 } = await sb.from("goals").update({ status: statusMap[action] }).eq("id", goalId);
-  if (e1) { alert("실패: " + e1.message); return; }
-  const { error: e2 } = await sb.from("goal_reviews").insert({ goal_id: goalId, action, comment, reviewer_id: PROFILE.id });
-  if (e2) { alert("실패: " + e2.message); return; }
+  if (e1) { toastError("실패: " + e1.message); return; }
+  const { error: e2 } = await sb.from("goal_reviews")
+    .insert({ goal_id: goalId, action, comment: fullComment, reviewer_id: PROFILE.id });
+  if (e2) { toastError("실패: " + e2.message); return; }
   await load();
 }
 </script>

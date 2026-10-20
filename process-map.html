@@ -13,7 +13,7 @@
 <div id="nav-root"></div>
 <div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
   <div>
-    <h1 class="text-lg font-bold" style="color:var(--text-primary)">프로세스 맵</h1>
+    <h1 class="page-title">프로세스 맵</h1>
     <p class="text-sm mt-1" style="color:var(--text-secondary)">사업계획 작성부터 진행실적 관리까지 전체 업무 흐름입니다. 각 단계를 클릭하면 해당 화면으로 이동합니다.</p>
   </div>
 
@@ -34,7 +34,7 @@ let PROFILE;
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
-  renderNav(PROFILE, "process");
+  renderNav(PROFILE, "settings");
   render();
 })();
 
@@ -44,7 +44,7 @@ function steps() {
     {
       badgeStatus: "draft",
       title: "① 목표 작성",
-      desc: "SMART(S·M·A·R·T) 형식으로 담당 사업부의 목표를 작성하고 핵심지표(KPI)를 등록합니다. 제출 전까지는 [임시저장] 상태로 자유롭게 수정할 수 있습니다.",
+      desc: "SMART(S·M·A·R·T) 형식으로 담당 사업부의 목표를 작성하고 핵심지표(KPI)를 등록합니다. 제출 전까지는 [작성 중] 상태로 자유롭게 수정할 수 있고, 입력 내용은 자동으로 저장됩니다.",
       href: "goal-form.html",
       linkLabel: "새 목표 작성 바로가기",
       owner: "사업부 담당자",
@@ -89,7 +89,7 @@ function steps() {
     {
       badgeStatus: null,
       title: "⑥ 변경요청 (필요 시)",
-      desc: "합의완료 · 잠김 상태의 목표를 수정해야 할 때 변경요청을 제출합니다. 지주사가 합의해야 실제 목표에 반영됩니다.",
+      desc: "확정 · 잠김 상태의 목표를 수정해야 할 때 변경요청을 제출합니다. 지주사가 합의해야 실제 목표에 반영됩니다.",
       href: "change-requests.html",
       linkLabel: "변경요청 화면 바로가기",
       owner: "공통",

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>진행실적 입력 | 대교홀딩스 SMART</title>
+<title>실적 입력 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="stylesheet" href="js/design.css" />
@@ -11,23 +11,57 @@
 </head>
 <body class="min-h-screen">
 <div id="nav-root"></div>
-<div class="max-w-4xl mx-auto px-4 py-6 space-y-4">
-  <h1 class="text-lg font-bold text-slate-800" id="page-title"></h1>
-  <div class="card p-2">
-    <div class="flex items-center justify-between px-3 py-2">
-      <label class="text-sm text-slate-600">목표를 선택하면 아래에 실적 입력란이 나타납니다</label>
-      <input id="goal-filter" type="text" placeholder="검색" class="text-xs border border-slate-300 rounded px-2 py-1 w-40" />
+<div class="max-w-4xl mx-auto px-4 py-7">
+  <div class="flex items-start justify-between gap-3 mb-4">
+    <div>
+      <h1 class="page-title" id="page-title">실적 입력</h1>
+      <p class="page-sub" id="page-sub"></p>
     </div>
-    <div id="goal-list" class="divide-y divide-slate-100 max-h-[132px] overflow-y-auto"></div>
+    <span class="save-state mt-1.5" id="save-state"></span>
   </div>
-  <div id="goal-context" class="card p-4 hidden"></div>
-  <div id="metrics-container" class="space-y-4"></div>
+
+  <div id="intro-root"></div>
+
+  <div class="tabs">
+    <button type="button" class="tab active" data-mode="now" id="tab-now">이번 기간 입력<span class="count" id="count-now">0</span></button>
+    <button type="button" class="tab" data-mode="year">한 해 전체 보기</button>
+  </div>
+
+  <!-- 이번 기간만 한 줄씩 -->
+  <div id="now-root"></div>
+
+  <!-- 한 해 전체: 회사 › 사업부 › 목표 순으로 좁혀 들어간다 -->
+  <div id="year-root" hidden>
+    <div class="card overflow-hidden mb-4">
+      <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color:var(--border)">
+        <span class="text-[12.5px]" style="color:var(--text-secondary)">왼쪽부터 차례로 좁혀 들어가면 목표를 바로 찾을 수 있습니다</span>
+        <input id="goal-filter" type="text" placeholder="목표·지표 검색" class="text-xs border rounded px-2 py-1 w-44" style="border-color:var(--border)" />
+      </div>
+      <div class="col-picker">
+        <div class="col-pane">
+          <div class="col-head">회사</div>
+          <div class="col-list" id="list-company"></div>
+        </div>
+        <div class="col-pane">
+          <div class="col-head">사업부</div>
+          <div class="col-list" id="list-bu"></div>
+        </div>
+        <div class="col-pane">
+          <div class="col-head">목표</div>
+          <div class="col-list" id="list-goal"></div>
+        </div>
+      </div>
+    </div>
+    <div id="goal-context" class="card p-4 hidden mb-4"></div>
+    <div id="metrics-container" class="space-y-4"></div>
+  </div>
 </div>
 
 <script src="js/common.js"></script>
 <script src="js/nav.js"></script>
 <script>
-let PROFILE, YEAR = getSelectedYear(), ALL_GOALS = [], SELECTED_GOAL_ID = null;
+let PROFILE, YEAR = getSelectedYear(), ALL_GOALS = [], SELECTED_GOAL_ID = null, MODE = "now";
+let NOW_ROWS = [];   // 이번 기간에 입력해야 할 (목표, 지표, 기간) 목록
 // 목표 목록에 KPI 지표명을 함께 보여주기 위한 캐시 (goal_id → "지표A / 지표B")
 let GOAL_METRIC_NAMES = {};
 function goalMetricLabel(g) { return GOAL_METRIC_NAMES[g.id] || g.indicator_name || ""; }
@@ -43,16 +77,53 @@ function companyOrderIndex(name) {
 (async function init() {
   PROFILE = await requireAuth();
   if (!PROFILE) return;
-  renderNav(PROFILE, "progress");
-  document.getElementById("page-title").textContent = `진행실적 입력 (${YEAR}년)`;
+  renderNav(PROFILE, "actual");
+
+  document.getElementById("intro-root").innerHTML = introBannerHtml(
+    "progress",
+    "엑셀에서 복사해 붙여넣을 수 있습니다",
+    "칸을 채우고 다른 곳을 누르면 바로 저장됩니다(저장 버튼 없음). Enter를 치면 다음 칸으로 내려가고, 엑셀에서 여러 칸을 복사해 한 칸에 붙여넣으면 아래로 차례대로 채워집니다. 지난 기간은 위 ‘한 해 전체 보기’에서 볼 수 있습니다."
+  );
+
   await loadGoalOptions();
-  const preselect = params.get("goal");
-  selectGoal(preselect && ALL_GOALS.some(g => g.id === preselect) ? preselect : (ALL_GOALS[0]?.id || null));
+  await loadNow();
+
   document.getElementById("goal-filter").addEventListener("input", renderGoalList);
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchMode(t.dataset.mode)));
+
+  // 홈에서 "마감 지난 실적" 카드를 눌러 들어오면 그 칸들만 먼저 보여준다
+  if (params.get("goal")) switchMode("year");
 })();
 
+function switchMode(mode) {
+  MODE = mode;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.mode === mode));
+  document.getElementById("now-root").hidden = (mode !== "now");
+  document.getElementById("year-root").hidden = (mode !== "year");
+  if (mode === "year" && !SELECTED_GOAL_ID) {
+    const preselect = params.get("goal");
+    if (preselect && ALL_GOALS.some(g => g.id === preselect)) {
+      focusPickerOn(preselect);          // 들어온 목표가 속한 회사·사업부 칸을 맞춰둔다
+      selectGoal(preselect, true);
+    }
+    renderGoalList();
+  }
+}
+
+function setSaveState(kind, text) {
+  const el = document.getElementById("save-state");
+  el.className = "save-state mt-1.5 " + (kind || "");
+  el.textContent = text || (kind === "saving" ? "저장 중…" : kind === "saved" ? "저장됨" : "");
+  if (kind === "saved") setTimeout(() => { if (el.textContent === "저장됨") el.textContent = ""; }, 2000);
+}
+
+// ============================================================
+//  목표 목록 (한 해 전체 보기에서 사용)
+// ============================================================
 async function loadGoalOptions() {
-  let q = sb.from("goals").select("id, strategy_name, seq_no, status, indicator_name, company_id, business_unit_id, companies:company_id(name), business_units:business_unit_id(name)").eq("year", YEAR).order("seq_no");
+  let q = sb.from("goals")
+    .select("id, strategy_name, seq_no, status, indicator_name, company_id, business_unit_id, companies:company_id(name), business_units:business_unit_id(name)")
+    .eq("year", YEAR).order("seq_no");
   if (!isHoldco(PROFILE)) q = q.eq("company_id", PROFILE.company_id);
   const { data } = await q;
 
@@ -93,27 +164,324 @@ async function loadGoalOptions() {
   renderGoalList();
 }
 
-function renderGoalList() {
-  const filter = document.getElementById("goal-filter").value.trim().toLowerCase();
-  const filtered = ALL_GOALS.filter(g => !filter ||
-    (g.strategy_name + " " + goalMetricLabel(g) + " " + g.companies.name + " " + (g.business_units?.name||"")).toLowerCase().includes(filter));
-  document.getElementById("goal-list").innerHTML = filtered.map(g => `
-    <div data-id="${g.id}" class="goal-list-item flex items-center justify-between px-3 py-2 cursor-pointer text-sm ${g.id===SELECTED_GOAL_ID?'bg-[var(--accent-soft)]':'hover:bg-[var(--surface-hover)]'}">
-      <div class="min-w-0">
-        <span class="font-medium text-slate-800">${isHoldco(PROFILE) ? escapeHtml(g.companies.name) + ' · ' : ''}${g.business_units ? `<span class="text-slate-500">${escapeHtml(g.business_units.name)} · </span>` : ''}${escapeHtml(g.strategy_name)}</span>
-        <span class="text-xs text-slate-400 ml-1">${escapeHtml(goalMetricLabel(g))}</span>
-      </div>
-      <span class="badge ${STATUS_BADGE_CLASS[g.status]} whitespace-nowrap">${STATUS_LABEL[g.status]}</span>
-    </div>`).join("") || `<p class="text-sm text-slate-400 px-3 py-4">해당하는 목표가 없습니다.</p>`;
+// ---- 회사 › 사업부 › 목표 세 칸 선택기 ----
+// 예전에는 전체 목표를 한 줄로 길게 늘어놓아, 목표가 수십 건이면 스크롤로 찾아야 했다.
+// 왼쪽 칸에서 고를수록 오른쪽 칸이 좁혀지므로 몇 번의 클릭으로 도달한다.
+let PICK_COMPANY = "", PICK_BU = "";
 
-  document.querySelectorAll(".goal-list-item").forEach(el => {
-    el.addEventListener("click", () => selectGoal(el.dataset.id));
+function searchText() {
+  return document.getElementById("goal-filter").value.trim().toLowerCase();
+}
+function matchesGoalSearch(g) {
+  const q = searchText();
+  if (!q) return true;
+  return (g.strategy_name + " " + goalMetricLabel(g) + " " + g.companies.name + " " + (g.business_units?.name || ""))
+    .toLowerCase().includes(q);
+}
+function buNameOf(g) { return g.business_units ? g.business_units.name : "사업부 미지정"; }
+
+function renderGoalList() {
+  // 검색어가 있으면 그 결과를 기준으로 칸을 다시 계산한다
+  const pool = ALL_GOALS.filter(matchesGoalSearch);
+
+  // 1칸: 회사 — 소속 회사가 하나뿐이어도 항상 보여준다.
+  // 칸이 상황에 따라 나타났다 사라지면 화면 구조가 매번 달라져 오히려 헷갈린다.
+  const companies = {};
+  pool.forEach(g => {
+    const c = (companies[g.company_id] = companies[g.company_id] || { name: g.companies.name, n: 0 });
+    c.n++;
   });
+  const entries = Object.entries(companies).sort((a, b) => companyOrderIndex(a[1].name) - companyOrderIndex(b[1].name));
+  if (PICK_COMPANY && !companies[PICK_COMPANY]) PICK_COMPANY = "";
+  if (!PICK_COMPANY && entries.length) PICK_COMPANY = entries[0][0];
+  document.getElementById("list-company").innerHTML = entries.map(([id, c]) =>
+    `<button type="button" class="col-opt ${PICK_COMPANY === id ? 'selected' : ''}" data-company="${id}">
+       <span class="truncate">${escapeHtml(c.name)}</span><span class="sub">${c.n}</span>
+     </button>`).join("") || `<p class="col-empty">해당하는 회사가 없습니다</p>`;
+
+  // 2칸: 사업부
+  const inCompany = pool.filter(g => g.company_id === PICK_COMPANY);
+  const bus = {};
+  inCompany.forEach(g => {
+    const key = g.business_unit_id || "none";
+    const b = (bus[key] = bus[key] || { name: buNameOf(g), n: 0 });
+    b.n++;
+  });
+  const buEntries = Object.entries(bus).sort((a, b) => a[1].name.localeCompare(b[1].name, "ko"));
+  if (PICK_BU && !bus[PICK_BU]) PICK_BU = "";
+  if (!PICK_BU && buEntries.length) PICK_BU = buEntries[0][0];
+  document.getElementById("list-bu").innerHTML = buEntries.map(([id, b]) =>
+    `<button type="button" class="col-opt ${PICK_BU === id ? 'selected' : ''}" data-bu="${id}">
+       <span class="truncate">${escapeHtml(b.name)}</span><span class="sub">${b.n}</span>
+     </button>`).join("") || `<p class="col-empty">해당하는 사업부가 없습니다</p>`;
+
+  // 3칸: 목표
+  const goals = inCompany.filter(g => (g.business_unit_id || "none") === PICK_BU)
+    .sort((a, b) => (a.seq_no ?? 0) - (b.seq_no ?? 0));
+  if (goals.length && !goals.some(g => g.id === SELECTED_GOAL_ID)) selectGoal(goals[0].id, true);
+  document.getElementById("list-goal").innerHTML = goals.map(g =>
+    `<button type="button" class="col-opt goal-opt ${g.id === SELECTED_GOAL_ID ? 'selected' : ''}" data-id="${g.id}">
+       <span class="min-w-0">
+         <span class="block truncate">${g.seq_no ? g.seq_no + '. ' : ''}${escapeHtml(g.strategy_name)}</span>
+         <span class="sub block truncate">${escapeHtml(goalMetricLabel(g))}</span>
+       </span>
+       <span class="badge ${STATUS_BADGE_CLASS[g.status]} whitespace-nowrap">${STATUS_LABEL[g.status]}</span>
+     </button>`).join("") || `<p class="col-empty">해당하는 목표가 없습니다</p>`;
+
+  document.querySelectorAll("#list-company .col-opt").forEach(el => el.addEventListener("click", () => {
+    PICK_COMPANY = el.dataset.company; PICK_BU = ""; renderGoalList();
+  }));
+  document.querySelectorAll("#list-bu .col-opt").forEach(el => el.addEventListener("click", () => {
+    PICK_BU = el.dataset.bu; renderGoalList();
+  }));
+  document.querySelectorAll("#list-goal .goal-opt").forEach(el => el.addEventListener("click", () => {
+    selectGoal(el.dataset.id);
+  }));
 }
 
-function selectGoal(goalId) {
+// 특정 목표로 바로 들어왔을 때(현황의 '실적 미입력' 카드 등) 그 목표가 속한 칸을 맞춰둔다
+function focusPickerOn(goalId) {
+  const g = ALL_GOALS.find(x => x.id === goalId);
+  if (!g) return;
+  PICK_COMPANY = g.company_id;
+  PICK_BU = g.business_unit_id || "none";
+}
+
+// ============================================================
+//  이번 기간 입력 — 기본 모드
+// ============================================================
+// 사람이 실제로 하는 일은 "9월치 넣기"이지 "이 목표의 1월부터 12월까지 보기"가 아니다.
+// 그래서 확정된 목표의 지표를 모아 이번 기간 한 칸씩만 보여준다.
+async function loadNow() {
+  const root = document.getElementById("now-root");
+  const now = new Date();
+  const targetGoals = ALL_GOALS.filter(g => g.status === "approved" || g.status === "locked");
+
+  document.getElementById("page-title").textContent = `${YEAR}년 실적 입력`;
+
+  if (!targetGoals.length) {
+    document.getElementById("count-now").textContent = "0";
+    document.getElementById("page-sub").textContent = "";
+    root.innerHTML = emptyStateHtml(
+      "실적을 입력할 확정 목표가 없습니다",
+      "목표가 확정되면 이번 기간에 채워야 할 칸이 여기에 모입니다.",
+      [{ label: "사업계획 목록 보기", href: "goals.html", primary: true }]
+    );
+    return;
+  }
+
+  const { data: metrics } = await sb.from("goal_metrics")
+    .select("*, kpi_definitions:kpi_definition_id(name,unit)").in("goal_id", targetGoals.map(g => g.id));
+  const metricIds = (metrics || []).map(m => m.id);
+  let entries = {};
+  let periodTargets = {};
+  if (metricIds.length) {
+    const [{ data: progress }, { data: pts }] = await Promise.all([
+      sb.from("progress_entries").select("*").in("goal_metric_id", metricIds),
+      sb.from("goal_period_targets").select("*").in("goal_metric_id", metricIds)
+    ]);
+    (progress || []).forEach(p => { entries[p.goal_metric_id + "|" + p.period] = p; });
+    (pts || []).forEach(t => { periodTargets[t.goal_metric_id + "|" + t.period] = t.target_value; });
+  }
+
+  const goalById = {};
+  targetGoals.forEach(g => { goalById[g.id] = g; });
+
+  // 각 지표마다 "지금 채워야 할 기간"을 뽑는다.
+  // 마감이 지났는데 비어 있는 기간이 있으면 그것을 먼저, 없으면 이번 기간을 보여준다.
+  NOW_ROWS = [];
+  (metrics || []).forEach(m => {
+    const goal = goalById[m.goal_id];
+    if (!goal) return;
+    const filled = p => {
+      const e = entries[m.id + "|" + p];
+      return !!e && (e.actual_value !== null || e.milestone_achieved !== null);
+    };
+    const overdue = overduePeriods(m.period_type, YEAR, filled, now);
+    overdue.forEach(p => NOW_ROWS.push({ metric: m, goal, period: p, overdue: true }));
+    const cur = currentPeriod(YEAR, m.period_type, now);
+    if (!overdue.includes(cur) && !filled(cur) && periodDeadline(cur, m.period_type) >= now) {
+      NOW_ROWS.push({ metric: m, goal, period: cur, overdue: false });
+    }
+  });
+
+  // 마감 지난 것부터, 그다음 사업부·지표 순서
+  NOW_ROWS.sort((a, b) => {
+    if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+    if (a.period !== b.period) return a.period < b.period ? -1 : 1;
+    const an = a.goal.business_units ? a.goal.business_units.name : "";
+    const bn = b.goal.business_units ? b.goal.business_units.name : "";
+    return an.localeCompare(bn, "ko");
+  });
+
+  document.getElementById("count-now").textContent = String(NOW_ROWS.length);
+  document.getElementById("tab-now").classList.toggle("urgent", NOW_ROWS.some(r => r.overdue));
+
+  if (!NOW_ROWS.length) {
+    document.getElementById("page-sub").textContent = "";
+    root.innerHTML = `<div class="all-done">
+      <p class="msg">이번 기간에 채울 칸이 없습니다</p>
+      <p class="sub">마감이 지난 칸도 없습니다. 지난 기록은 ‘한 해 전체 보기’에서 확인할 수 있습니다.</p>
+    </div>`;
+    return;
+  }
+
+  const overdueCount = NOW_ROWS.filter(r => r.overdue).length;
+  document.getElementById("page-sub").textContent =
+    overdueCount ? `${NOW_ROWS.length}칸 남음 · 그중 ${overdueCount}칸은 마감이 지났습니다`
+                 : `${NOW_ROWS.length}칸 남음`;
+
+  // 마감 지난 것과 이번 기간 것을 나누고, 각 묶음 안에서는 사업부로 다시 묶는다.
+  // 한 줄로 길게 늘어놓으면 어디까지가 우리 사업부인지 알 수 없다.
+  const section = (title, rows, tone) => {
+    if (!rows.length) return "";
+    const byBu = {};
+    rows.forEach(r => {
+      const key = r.goal.business_unit_id || "none";
+      (byBu[key] = byBu[key] || { name: r.goal.business_units ? r.goal.business_units.name : "사업부 미지정", rows: [] }).rows.push(r);
+    });
+    const groups = Object.values(byBu).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    return `<div class="mb-5">
+      <p class="text-[13px] font-semibold mb-2" style="color:${tone}">${escapeHtml(title)} <span style="color:var(--text-tertiary)">${rows.length}칸</span></p>
+      ${groups.map(g => `
+        <p class="text-[11.5px] font-semibold mt-3 mb-1.5" style="color:var(--text-tertiary)">${escapeHtml(g.name)} · ${g.rows.length}칸</p>
+        ${g.rows.map(r => nowRowHtml(r, entries, periodTargets)).join("")}
+      `).join("")}
+    </div>`;
+  };
+
+  root.innerHTML =
+    section("마감이 지난 칸", NOW_ROWS.filter(r => r.overdue), "var(--red)") +
+    section("이번 기간", NOW_ROWS.filter(r => !r.overdue), "var(--text-primary)");
+  bindNowRows();
+}
+
+// 지난 기간에 넣은 값을 옆에 회색으로 보여준다.
+// 누적형 지표에 당월 실적을 넣는 실수가 여기서 바로 드러난다.
+function prevValueText(metric, period, entries) {
+  const periods = periodsForYear(YEAR, metric.period_type);
+  const idx = periods.indexOf(period);
+  if (idx <= 0) return "";
+  const prev = entries[metric.id + "|" + periods[idx - 1]];
+  if (!prev || prev.actual_value === null || prev.actual_value === undefined) return "";
+  return `${periodDisplayLabel(periods[idx - 1])} ${Number(prev.actual_value).toLocaleString()}`;
+}
+
+function nowRowHtml(r, entries, periodTargets) {
+  const m = r.metric, goal = r.goal;
+  const key = m.id + "|" + r.period;
+  const p = entries[key];
+  const unit = m.unit || (m.kpi_definitions && m.kpi_definitions.unit) || "";
+  const isMilestone = m.metric_type === "milestone";
+  const isQualitative = m.metric_type === "qualitative";
+  const periods = periodsForYear(YEAR, m.period_type);
+  const idx = periods.indexOf(r.period);
+
+  // 목표: 기간별 목표가 있으면 그 값, 없으면 연간 목표로 계산한 참고값
+  let targetText = "-";
+  if (!isMilestone && !isQualitative) {
+    const set = periodTargets[key];
+    if (set !== undefined && set !== null) targetText = `${Number(set).toLocaleString()}${unit}`;
+    else {
+      const ref = referencePeriodTarget(m, idx, periods.length);
+      if (ref !== null) targetText = `${ref.toLocaleString()}${unit} (참고)`;
+    }
+  }
+
+  const deadline = periodDeadline(r.period, m.period_type);
+  const deadlineText = `${deadline.getMonth() + 1}월 ${deadline.getDate()}일까지`;
+  const prev = prevValueText(m, r.period, entries);
+  const acc = accumulationOf(m);
+
+  const input = isMilestone
+    ? `<select class="val-milestone border rounded-lg px-2 py-1.5 text-sm" style="border-color:var(--border)">
+         <option value="">미입력</option>
+         <option value="true" ${p && p.milestone_achieved === true ? 'selected' : ''}>완료</option>
+         <option value="false" ${p && p.milestone_achieved === false ? 'selected' : ''}>미완료</option>
+       </select>`
+    : isQualitative
+    ? `<div class="flex items-center gap-1">
+         <input type="number" min="0" max="100" step="1" class="val-actual border rounded-lg px-2 py-1.5 text-sm w-24 text-right" style="border-color:var(--border)" placeholder="진척도" value="${p && p.actual_value !== null ? p.actual_value : ''}" />
+         <span class="text-xs" style="color:var(--text-tertiary)">%</span>
+       </div>`
+    : `<div class="flex items-center gap-1">
+         <input type="number" step="any" class="val-actual border rounded-lg px-2 py-1.5 text-sm w-32 text-right" style="border-color:var(--border)" value="${p && p.actual_value !== null ? p.actual_value : ''}" />
+         <span class="text-xs" style="color:var(--text-tertiary)">${escapeHtml(unit)}</span>
+       </div>`;
+
+  return `<div class="card p-4 mb-2.5 now-row ${r.overdue ? 'ring-1' : ''}" ${r.overdue ? 'style="--tw-ring-color:var(--red)"' : ''}
+       data-metric="${m.id}" data-period="${r.period}">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+      <div class="min-w-0">
+        <div class="text-[11.5px]" style="color:var(--text-tertiary)">
+          ${escapeHtml(goal.business_units ? goal.business_units.name : "사업부 미지정")} · ${escapeHtml(goal.strategy_name)}
+        </div>
+        <div class="text-[14px] font-semibold" style="color:var(--text-primary)">
+          ${escapeHtml(metricNameOf(m))}
+          <span class="text-[12px] font-normal ml-1" style="color:var(--text-secondary)">${YEAR}년 ${periodDisplayLabel(r.period)}</span>
+        </div>
+      </div>
+      <span class="text-[11.5px] ${r.overdue ? 'font-semibold' : ''}" style="color:${r.overdue ? 'var(--red)' : 'var(--text-tertiary)'}">
+        ${r.overdue ? `마감 ${deadlineText} 지남` : `마감 ${deadlineText}`}
+      </span>
+    </div>
+
+    <div class="flex flex-wrap items-end gap-4">
+      <div>
+        <label class="block text-[11px] mb-1" style="color:var(--text-tertiary)">실적</label>
+        ${input}
+      </div>
+      ${(isMilestone || isQualitative) ? "" : `<div>
+        <label class="block text-[11px] mb-1" style="color:var(--text-tertiary)">이 기간 목표</label>
+        <div class="text-[13px] py-1.5" style="color:var(--text-secondary)">${escapeHtml(targetText)}</div>
+      </div>`}
+      ${prev ? `<div>
+        <label class="block text-[11px] mb-1" style="color:var(--text-tertiary)">지난 기간</label>
+        <div class="prev-value py-1.5">${escapeHtml(prev)}</div>
+      </div>` : ""}
+      <div class="flex-1 min-w-[160px]">
+        <label class="block text-[11px] mb-1" style="color:var(--text-tertiary)">메모 (선택)</label>
+        <input class="val-note w-full border rounded-lg px-2 py-1.5 text-sm" style="border-color:var(--border)" value="${p && p.note ? escapeHtml(p.note) : ''}" />
+      </div>
+      <div>
+        <label class="block text-[11px] mb-1" style="color:var(--text-tertiary)">증빙 (선택)</label>
+        <input type="file" class="val-file text-xs" />
+      </div>
+      <span class="row-state text-[11.5px] pb-2" style="color:var(--green)"></span>
+    </div>
+    ${(isMilestone || isQualitative) ? "" :
+      `<p class="text-[11px] mt-2" style="color:${acc === 'latest' ? 'var(--blue)' : 'var(--text-tertiary)'}">${escapeHtml(ACCUMULATION_INPUT_HINT[acc])}</p>`}
+  </div>`;
+}
+
+// 저장 버튼 없이, 칸을 벗어나면 저장한다
+function bindNowRows() {
+  document.querySelectorAll(".now-row").forEach(row => {
+    const commit = async () => {
+      setSaveState("saving");
+      const ok = await saveProgress(row, { force: true });
+      setSaveState(ok ? "saved" : "");
+      if (ok) {
+        const st = row.querySelector(".row-state");
+        st.textContent = "저장됨";
+        setTimeout(() => { st.textContent = ""; }, 2000);
+      }
+    };
+    row.querySelectorAll(".val-actual, .val-note").forEach(el => el.addEventListener("change", commit));
+    row.querySelectorAll(".val-milestone").forEach(el => el.addEventListener("change", commit));
+    row.querySelectorAll(".val-file").forEach(el => el.addEventListener("change", commit));
+  });
+  // 이번 기간 화면도 칸이 세로로 늘어서므로 Enter 이동·붙여넣기가 그대로 쓸모 있다
+  bindGridKeys(document.getElementById("now-root"));
+}
+
+// ============================================================
+//  한 해 전체 보기 (예전 화면 그대로)
+// ============================================================
+// quiet: 목록을 다시 그리는 중에 호출된 경우(무한 재귀 방지)
+function selectGoal(goalId, quiet) {
   SELECTED_GOAL_ID = goalId;
-  renderGoalList();
+  if (!quiet) renderGoalList();
   if (goalId) {
     loadGoalContext(goalId);
     loadMetricsForGoal(goalId);
@@ -130,8 +498,6 @@ async function loadGoalContext(goalId) {
     .eq("id", goalId).single();
   if (error || !goal) { ctx.classList.add("hidden"); return; }
 
-  const field = (label, val, bg, fg) => `<div><dt class="mb-0.5"><span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold" style="background:${bg};color:${fg}">${label}</span></dt><dd class="text-slate-700">${nl2br(val) || '<span style="color:var(--text-tertiary)">-</span>'}</dd></div>`;
-
   ctx.classList.remove("hidden");
   ctx.innerHTML = `
     <div class="flex items-center gap-2 mb-2">
@@ -139,18 +505,17 @@ async function loadGoalContext(goalId) {
       <span class="badge ${STATUS_BADGE_CLASS[goal.status]}">${STATUS_LABEL[goal.status]}</span>
     </div>
     <p class="text-xs text-slate-400 mb-3">${escapeHtml(goal.companies?.name||'')} · ${escapeHtml(goal.business_units?.name||'사업부 미지정')}</p>
-    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-      ${field("S · Specific", goal.specific_text, "#EEF0F4", "#3A4356")}
-      ${field("M · Measurable", goal.measurable_text, "#EAF0F8", "#4C6FA5")}
-      ${field("A · Achievable", goal.achievable_text, "#E7F5EC", "#2F9E5B")}
-      ${field("R · Relevant", goal.relevant_text, "#FAF1DE", "#C98A1F")}
-      ${field("T · Time-bound", goal.timebound_text, "#FBEAE7", "#C94A3C")}
+    <dl class="smart-list">
+      ${SMART_FIELDS.map(f => `<div>
+        <dt>${smartLabelHtml(f)}</dt>
+        <dd>${textBlockHtml(goal[f.key]) || '<span style="color:var(--text-tertiary)">-</span>'}</dd>
+      </div>`).join("")}
     </dl>`;
 }
 
 async function loadMetricsForGoal(goalId) {
   const canEdit = !isHoldco(PROFILE);
-  const { data: metrics } = await sb.from("goal_metrics").select("*").eq("goal_id", goalId);
+  const { data: metrics } = await sb.from("goal_metrics").select("*, kpi_definitions:kpi_definition_id(name,unit)").eq("goal_id", goalId);
   const metricIds = (metrics||[]).map(m=>m.id);
   let progressByKey = {};
   let periodTargetsByKey = {};
@@ -170,20 +535,20 @@ async function loadMetricsForGoal(goalId) {
     const isMilestone = m.metric_type === "milestone";
     const isQualitative = m.metric_type === "qualitative";
     const isNumeric = !isMilestone && !isQualitative;
+    const unit = m.unit || (m.kpi_definitions && m.kpi_definitions.unit) || "";
     const rows = periods.map((period, idx) => {
       const key = m.id + "|" + period;
       const p = progressByKey[key];
       const periodTarget = periodTargetsByKey[key];
       // 기간별 목표가 설정돼 있으면 그 값을, 없으면 공용 규칙으로 계산한 참고값을 보여준다.
-      // (예전에는 연간 목표값을 매 기간에 그대로 표시해서, 합산형 지표의 월 목표가 연간 목표처럼 보였다)
       let targetCell = '-';
       if (isNumeric) {
         if (periodTarget !== undefined && periodTarget !== null) {
-          targetCell = `${Number(periodTarget).toLocaleString()}${m.unit||''}`;
+          targetCell = `${Number(periodTarget).toLocaleString()}${unit}`;
         } else {
           const ref = referencePeriodTarget(m, idx, periods.length);
           targetCell = ref === null ? '-'
-            : `<span class="text-slate-400" title="기간별 목표값이 설정되지 않아 연간 목표로 계산한 참고값입니다">${ref.toLocaleString()}${m.unit||''} <span class="text-[10px]">(참고)</span></span>`;
+            : `<span class="text-slate-400" title="기간별 목표값이 설정되지 않아 연간 목표로 계산한 참고값입니다">${ref.toLocaleString()}${unit} <span class="text-[10px]">(참고)</span></span>`;
         }
       }
       return `<tr class="border-b border-slate-100" data-metric="${m.id}" data-period="${period}">
@@ -206,7 +571,7 @@ async function loadMetricsForGoal(goalId) {
         <td class="py-1.5 px-2"><input class="val-note border border-slate-300 rounded px-2 py-1 text-sm w-full" placeholder="메모" value="${p&&p.note?escapeHtml(p.note):''}" ${canEdit?'':'disabled'} /></td>
         <td class="py-1.5 px-2"><input type="file" class="val-file text-xs" ${canEdit?'':'disabled'} />${p&&p.attachment_path?`<a href="#" class="download-link text-xs text-blue-600 underline ml-1 block truncate max-w-[120px]" data-path="${p.attachment_path}" data-name="${escapeHtml(p.attachment_name||'첨부파일')}">${escapeHtml(p.attachment_name||'첨부확인')}</a>`:''}</td>
         <td class="py-1.5 px-2 text-xs text-slate-400">${p&&p.submitter?escapeHtml(p.submitter.name||p.submitter.email)+' · '+new Date(p.updated_at).toLocaleDateString('ko-KR'):''}</td>
-        <td class="py-1.5 px-2">${canEdit?`<button class="save-btn text-xs bg-[#3a4356] text-white rounded px-2 py-1">저장</button>`:''}</td>
+        <td class="py-1.5 px-2">${canEdit?`<button class="save-btn btn btn-primary !text-xs !px-2 !py-1">저장</button>`:''}</td>
       </tr>`;
     }).join("");
     let goalHint;
@@ -214,18 +579,18 @@ async function loadMetricsForGoal(goalId) {
     else if (isQualitative) goalHint = "진척도(%) 자가평가로 관리";
     else {
       const parts = [];
-      if (m.target_value !== null && m.target_value !== undefined) parts.push(`연간목표 ${m.target_value}${m.unit||''}`);
+      if (m.target_value !== null && m.target_value !== undefined) parts.push(`올해 목표 ${m.target_value}${unit}`);
       if (metricsWithPeriodTargets.has(m.id)) parts.push("기간별 목표값 설정됨");
-      goalHint = parts.length ? parts.join(" · ") : `목표값 미설정 ${m.unit||''}`;
+      goalHint = parts.length ? parts.join(" · ") : `목표값 미설정 ${unit}`;
     }
     // 담당자마다 당월 실적과 누적값을 다르게 넣으면 달성률이 틀어지므로, 입력 방법을 지표마다 명확히 안내한다
     const accum = accumulationOf(m);
     const accumBadge = (isMilestone || isQualitative) ? "" :
-      `<span class="badge ${accum === 'latest' ? 'bg-[#eaf0f8] text-[#4c6fa5]' : accum === 'average' ? 'bg-[#faf1de] text-[#b9821f]' : 'bg-[#f0f0f2] text-[#6e6e73]'}">${ACCUMULATION_SHORT[accum]}</span>`;
+      `<span class="badge ${accum === 'latest' ? 'badge-latest' : accum === 'average' ? 'badge-average' : 'badge-sum'}">${ACCUMULATION_SHORT[accum]}</span>`;
     return `<div class="card p-4 metric-card" data-metric="${m.id}">
       <div class="flex items-center justify-between mb-1">
-        <h3 class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${escapeHtml(METRIC_TYPE_LABEL[m.metric_type]||'')} · ${goalHint})</span> ${accumBadge}</h3>
-        ${canEdit ? `<button class="bulk-save-btn text-xs bg-[#3a4356] text-white rounded px-3 py-1.5 hover:bg-[#2c3342] whitespace-nowrap">일괄저장</button>` : ''}
+        <h3 class="font-medium text-sm text-slate-800">${escapeHtml(metricNameOf(m))} <span class="text-xs text-slate-400">(${escapeHtml((METRIC_TYPE_LABEL[m.metric_type]||'').split(" (")[0])} · ${goalHint})</span> ${accumBadge}</h3>
+        ${canEdit ? `<button class="bulk-save-btn btn btn-primary !text-xs !py-1.5 whitespace-nowrap">일괄저장</button>` : ''}
       </div>
       ${(isMilestone || isQualitative) ? "" : `<p class="text-[11px] mb-2 ${accum === 'latest' ? 'text-blue-600' : 'text-slate-400'}">${ACCUMULATION_INPUT_HINT[accum]}</p>`}
       <div class="overflow-x-auto"><table class="w-full text-sm">
@@ -239,7 +604,7 @@ async function loadMetricsForGoal(goalId) {
     btn.addEventListener("click", async (e) => {
       const tr = e.target.closest("tr");
       const ok = await saveProgress(tr, { force: true });
-      if (ok) { alert("저장되었습니다."); loadMetricsForGoal(SELECTED_GOAL_ID); }
+      if (ok) { setSaveState("saved"); loadMetricsForGoal(SELECTED_GOAL_ID); }
     });
   });
   document.querySelectorAll(".bulk-save-btn").forEach(btn => {
@@ -253,15 +618,78 @@ async function loadMetricsForGoal(goalId) {
         const ok = await saveProgress(tr);
         if (ok) count++;
       }
-      alert(`${count}개 기간의 실적이 저장되었습니다.`);
+      setSaveState("saved", `${count}개 기간 저장됨`);
       loadMetricsForGoal(SELECTED_GOAL_ID);
     });
   });
   document.querySelectorAll(".download-link").forEach(a => {
     a.addEventListener("click", async (e) => {
       e.preventDefault();
-      const { data, error } = await sb.storage.from("progress-attachments").createSignedUrl(a.dataset.path, 60, { download: a.dataset.name });
+      const { data } = await sb.storage.from("progress-attachments").createSignedUrl(a.dataset.path, 60, { download: a.dataset.name });
       if (data) window.open(data.signedUrl, "_blank");
+    });
+  });
+
+  // 칸을 벗어나면 저장한다. 붙여넣기도 change 이벤트를 일으키므로 그대로 저장된다.
+  const container = document.getElementById("metrics-container");
+  if (canEdit) {
+    container.querySelectorAll("tbody tr").forEach(tr => {
+      tr.querySelectorAll(".val-actual, .val-milestone, .val-note").forEach(el =>
+        el.addEventListener("change", async () => {
+          setSaveState("saving");
+          const ok = await saveProgress(tr, { force: true });
+          setSaveState(ok ? "saved" : "");
+        }));
+    });
+    bindGridKeys(container);
+  }
+}
+
+// ============================================================
+//  키보드로 연속 입력 · 엑셀 붙여넣기
+// ============================================================
+// 담당자는 이미 엑셀로 월별 실적을 관리하고 있다. 12칸을 하나씩 옮겨 적게 만들면
+// 시스템을 안 쓰게 되는 가장 흔한 이유가 된다. 그래서 두 가지를 넣는다.
+//  · Enter / 아래 화살표 → 같은 열의 다음 칸으로 이동
+//  · 한 칸에 붙여넣으면 거기서부터 아래로 차례대로 채움 (엑셀의 세로 한 줄을 그대로)
+function cellsOf(container) {
+  return [...container.querySelectorAll(".val-actual, .val-milestone")];
+}
+
+function bindGridKeys(container) {
+  const cells = cellsOf(container);
+  cells.forEach((el, i) => {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || (e.key === "ArrowDown" && e.target.tagName !== "SELECT")) {
+        e.preventDefault();
+        const next = cells[i + 1];
+        if (next) { next.focus(); if (next.select) next.select(); }
+        else el.blur(); // 마지막 칸에서 Enter를 치면 저장되도록 포커스를 뗀다
+      } else if (e.key === "ArrowUp" && e.target.tagName !== "SELECT") {
+        e.preventDefault();
+        const prev = cells[i - 1];
+        if (prev) { prev.focus(); if (prev.select) prev.select(); }
+      }
+    });
+
+    el.addEventListener("paste", (e) => {
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      if (!text || !/[\t\r\n]/.test(text)) return; // 값 하나면 평소대로 붙여넣기
+      e.preventDefault();
+
+      // 엑셀에서 세로로 복사하면 줄바꿈, 가로로 복사하면 탭으로 구분된다. 둘 다 받는다.
+      const values = text.trim().split(/\r\n|\r|\n|\t/).map(v => v.trim()).filter(v => v !== "");
+      let filled = 0;
+      values.forEach((raw, k) => {
+        const target = cells[i + k];
+        if (!target || target.tagName === "SELECT") return;
+        const num = Number(raw.replace(/,/g, "")); // 엑셀의 1,234 형식
+        if (isNaN(num)) return;
+        target.value = num;
+        target.dispatchEvent(new Event("change", { bubbles: true })); // 저장까지 이어지도록
+        filled++;
+      });
+      toastOk(filled ? `${filled}칸을 채웠습니다` : "붙여넣을 숫자를 찾지 못했습니다");
     });
   });
 }
@@ -281,20 +709,24 @@ function sanitizeStorageFilename(name) {
   return base + ext;
 }
 
-async function saveProgress(tr, opts) {
+// tr(한 해 전체 보기)과 .now-row(이번 기간 입력) 양쪽에서 같은 저장 로직을 쓴다
+async function saveProgress(el, opts) {
   const force = opts && opts.force;
-  const metricId = tr.dataset.metric;
-  const period = tr.dataset.period;
-  const milestoneSel = tr.querySelector(".val-milestone");
-  const actualInput = tr.querySelector(".val-actual");
-  const note = tr.querySelector(".val-note").value;
-  const fileInput = tr.querySelector(".val-file");
+  const metricId = el.dataset.metric;
+  const period = el.dataset.period;
+  const milestoneSel = el.querySelector(".val-milestone");
+  const actualInput = el.querySelector(".val-actual");
+  const noteEl = el.querySelector(".val-note");
+  const note = noteEl ? noteEl.value : "";
+  const fileInput = el.querySelector(".val-file");
 
   // 실적/메모/파일이 전부 비어있는 행은 건드리지 않는다 (일괄저장 시 빈 행까지 덮어쓰지 않기 위함)
   const hasActual = actualInput && actualInput.value !== "";
   const hasMilestone = milestoneSel && milestoneSel.value !== "";
   const hasFile = fileInput && fileInput.files && fileInput.files[0];
   const hasNote = note !== "";
+  // force는 사용자가 값을 실제로 바꿨을 때만 들어온다(change 이벤트).
+  // 그래서 값을 지운 경우에도 null로 저장되어야 하며, 여기서 막으면 옛 값이 그대로 남는다.
   if (!force && !hasActual && !hasMilestone && !hasFile && !hasNote) return false;
 
   let attachment_path = null;
@@ -304,7 +736,7 @@ async function saveProgress(tr, opts) {
     const safeName = sanitizeStorageFilename(file.name);
     const path = `${metricId}/${period}/${Date.now()}_${safeName}`;
     const { error: upErr } = await sb.storage.from("progress-attachments").upload(path, file, { upsert: true });
-    if (upErr) { alert("파일 업로드 실패: " + upErr.message); return false; }
+    if (upErr) { toastError("파일 업로드 실패: " + upErr.message); return false; }
     attachment_path = path;
     attachment_name = file.name; // 원본 파일명(한글 포함)은 화면 표시용으로 별도 저장
   }
@@ -322,7 +754,7 @@ async function saveProgress(tr, opts) {
   if (attachment_path) { payload.attachment_path = attachment_path; payload.attachment_name = attachment_name; }
 
   const { error } = await sb.from("progress_entries").upsert(payload, { onConflict: "goal_metric_id,period" });
-  if (error) { alert("저장 실패 (" + period + "): " + error.message); return false; }
+  if (error) { toastError("저장 실패 (" + period + "): " + error.message); return false; }
   return true;
 }
 </script>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>목표 작성/수정 | 대교홀딩스 SMART</title>
+<title>목표 작성 | 대교홀딩스 SMART</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <link rel="stylesheet" href="js/design.css" />
@@ -11,60 +11,92 @@
 </head>
 <body class="min-h-screen">
 <div id="nav-root"></div>
-<div class="max-w-3xl mx-auto px-4 py-6">
-  <h1 class="text-lg font-bold text-slate-800 mb-4" id="page-title">SMART 목표 작성</h1>
+<div class="max-w-3xl mx-auto px-4 py-7">
+  <div class="flex items-start justify-between gap-3 mb-5">
+    <div>
+      <h1 class="page-title" id="page-title">목표 작성</h1>
+      <p class="page-sub" id="page-sub"></p>
+    </div>
+    <span class="save-state mt-1.5" id="save-state"></span>
+  </div>
 
-  <form id="goal-form" class="card p-6 space-y-4">
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">사업부</label>
-      <select id="business_unit_id" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></select>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">전략(목표) *</label>
-      <input id="strategy_name" required class="w-full border border-slate-300 rounded px-3 py-2 text-sm" placeholder="예: 핵심고객 Pool 확대" />
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">S · Specific (무엇을 할 것인가)</label>
-      <textarea id="specific_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">M · Measurable (수치/기준)</label>
-      <textarea id="measurable_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">A · Achievable (달성 가능한 근거)</label>
-      <textarea id="achievable_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">R · Relevant (우선순위와의 관련성)</label>
-      <textarea id="relevant_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">T · Time-bound (완료 시점/마감일)</label>
-      <textarea id="timebound_text" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">후속조치</label>
-      <textarea id="follow_up_action" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
-    <div>
-      <label class="block text-sm font-medium text-slate-700 mb-1">비고</label>
-      <textarea id="remarks" rows="2" class="w-full border border-slate-300 rounded px-3 py-2 text-sm"></textarea>
-    </div>
+  <div id="carryover-root"></div>
+  <div id="intro-root"></div>
 
-    <div class="border-t border-slate-200 pt-4">
-      <div class="flex items-center justify-between mb-2">
-        <label class="block text-sm font-medium text-slate-700">핵심지표(KPI)</label>
-        <button type="button" id="add-metric" class="text-xs text-slate-600 underline">+ 지표 추가</button>
+  <!-- 단계 표시 -->
+  <div class="stepper" id="stepper">
+    <button type="button" class="step active" data-step="1">
+      <span class="step-num">1</span><span class="step-name">무엇을 할 것인가</span>
+    </button>
+    <span class="step-line"></span>
+    <button type="button" class="step" data-step="2">
+      <span class="step-num">2</span><span class="step-name">무엇으로 잴 것인가</span>
+    </button>
+    <span class="step-line"></span>
+    <button type="button" class="step" data-step="3">
+      <span class="step-num">3</span><span class="step-name">근거와 일정</span>
+    </button>
+  </div>
+
+  <form id="goal-form" class="card p-6">
+    <!-- ───────── 1단계 ───────── -->
+    <div class="step-panel active" data-panel="1">
+      <div class="mb-4">
+        <label class="field-label" for="business_unit_id">사업부</label>
+        <select id="business_unit_id" class="w-full border rounded-lg px-3 py-2 text-sm" style="border-color:var(--border)"></select>
+        <p class="field-hint" id="bu-hint"></p>
       </div>
-      <div id="metrics-root" class="space-y-3"></div>
+      <div class="mb-4">
+        <label class="field-label" for="strategy_name">전략(목표) 이름 <span class="text-red-500 ml-1">*</span></label>
+        <input id="strategy_name" required class="w-full border rounded-lg px-3 py-2 text-sm" style="border-color:var(--border)"
+          placeholder="예: 기계설비 성능점검 연계 공사업 확대" />
+        <p class="field-hint">한 줄로 읽히는 이름을 붙여주세요. 목록과 보고서에 이 이름이 그대로 나옵니다.</p>
+      </div>
+      <div class="mb-1">
+        <label class="field-label" for="specific_text" id="specific-label"></label>
+        <textarea id="specific_text" rows="3" class="w-full border rounded-lg px-3 py-2 text-sm" style="border-color:var(--border)"></textarea>
+        <p class="field-hint">예: 기계설비유지관리 수주를 확대하고, 성능점검과 연계한 수선공사를 수행해 점검·수선·FM 수주의 선순환 체계를 만든다.</p>
+      </div>
     </div>
 
-    <p id="error-msg" class="text-sm text-red-600 hidden"></p>
-    <div class="flex gap-2 pt-2">
-      <button type="submit" data-mode="draft" class="bg-white border border-slate-300 text-slate-700 rounded px-4 py-2 text-sm hover:bg-slate-100">임시저장</button>
-      <button type="submit" data-mode="submit" class="bg-[#3a4356] text-white rounded px-4 py-2 text-sm hover:bg-[#2c3342]">검토 제출</button>
-      <a href="goals.html" class="ml-auto text-sm text-slate-500 self-center hover:underline">취소</a>
+    <!-- ───────── 2단계 ───────── -->
+    <div class="step-panel" data-panel="2">
+      <div class="flex items-center justify-between mb-1">
+        <p class="text-[13px] font-semibold" style="color:var(--text-primary)">
+          이 목표의 달성 여부를 무엇으로 판단할까요?
+        </p>
+        <button type="button" id="add-metric" class="text-[12px] underline" style="color:var(--text-secondary)">+ 지표 추가</button>
+      </div>
+      <p class="field-hint mb-3">지표를 고르고 <b>올해 목표값 한 줄</b>만 채우면 됩니다. 나머지 속성은 KPI 기준정보에서 따라옵니다.</p>
+      <div id="metrics-root" class="space-y-3"></div>
+
+      <!-- M은 '어떻게 잴지'이므로 지표 바로 아래가 제자리다 -->
+      <div class="mt-5 pt-5 border-t" style="border-color:var(--border)" id="measurable-wrap"></div>
+    </div>
+
+    <!-- ───────── 3단계 ───────── -->
+    <div class="step-panel" data-panel="3">
+      <p class="field-hint mb-4">모두 선택 항목입니다. 비워둔 채로 제출할 수 있고, 나중에 채워도 됩니다. 다만 적어두면 검토가 빨라집니다.</p>
+      <div id="smart-rest"></div>
+      <div class="mb-4 pt-4 border-t" style="border-color:var(--border)">
+        <label class="field-label" for="follow_up_action">후속조치 <span class="font-normal text-[11.5px]" style="color:var(--text-tertiary)">(선택)</span></label>
+        <textarea id="follow_up_action" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" style="border-color:var(--border)"></textarea>
+      </div>
+      <div>
+        <label class="field-label" for="remarks">비고 <span class="font-normal text-[11.5px]" style="color:var(--text-tertiary)">(선택)</span></label>
+        <textarea id="remarks" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" style="border-color:var(--border)"></textarea>
+      </div>
+    </div>
+
+    <p id="error-msg" class="text-sm text-red-600 hidden mt-4"></p>
+
+    <!-- ───────── 하단 버튼 ───────── -->
+    <div class="flex flex-wrap items-center gap-2 pt-5 mt-5 border-t" style="border-color:var(--border)">
+      <button type="button" id="btn-prev" class="btn btn-secondary !text-[13px]" hidden>이전</button>
+      <button type="button" id="btn-next" class="btn btn-primary !text-[13px]">다음</button>
+      <button type="button" id="btn-submit" class="btn btn-primary !text-[13px]" hidden></button>
+      <span id="submit-hint" class="text-[11.5px]" style="color:var(--text-tertiary)"></span>
+      <a href="goals.html" class="ml-auto text-[13px] self-center hover:underline" style="color:var(--text-secondary)">목록으로</a>
     </div>
   </form>
 </div>
@@ -87,82 +119,92 @@
     </div>
     <div id="kpi-modal-list" class="overflow-auto flex-1 divide-y divide-slate-100"></div>
     <div class="p-3 border-t border-slate-200">
-      <button type="button" id="kpi-modal-create" class="hidden w-full text-sm bg-[#3a4356] text-white rounded px-3 py-2"></button>
+      <button type="button" id="kpi-modal-create" class="hidden w-full btn btn-primary !text-sm"></button>
       <p class="text-[11px] text-slate-400 text-center" id="kpi-modal-hint">최근에 사용한 지표가 위쪽에 나옵니다</p>
     </div>
   </div>
 </div>
 
 <datalist id="unit-options">
-  <option value="건"></option><option value="명"></option><option value="개"></option><option value="%"></option>
-  <option value="점"></option><option value="억원"></option><option value="백만원"></option><option value="천원"></option>
-  <option value="팀"></option><option value="사"></option><option value="회"></option>
+  <option value="백만원"></option><option value="억원"></option><option value="건"></option><option value="개"></option>
+  <option value="명"></option><option value="%"></option><option value="점"></option><option value="사"></option>
+  <option value="회"></option><option value="일"></option><option value="팀"></option><option value="천원"></option>
 </datalist>
 
 <template id="metric-row-tpl">
-  <div class="metric-row border border-slate-200 rounded p-3 space-y-2">
-    <div class="grid grid-cols-1 sm:grid-cols-7 gap-2">
-      <div class="sm:col-span-2 relative">
+  <div class="metric-row border rounded-xl p-4 space-y-3" style="border-color:var(--border)">
+    <!-- 지표 고르기 -->
+    <div class="flex gap-2 items-start">
+      <div class="flex-1 min-w-0 relative">
         <div class="flex">
-          <input class="m-name flex-1 min-w-0 border border-slate-300 rounded-l px-2 py-1.5 text-sm" autocomplete="off" placeholder="지표명 입력 (초성 검색 가능)" />
-          <button type="button" class="m-browse border border-l-0 border-slate-300 rounded-r px-2 text-slate-500 hover:bg-slate-50" title="전체 지표에서 찾기">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/></svg>
+          <input class="m-name flex-1 min-w-0 border rounded-l-lg px-3 py-2 text-sm" style="border-color:var(--border)" autocomplete="off" placeholder="KPI 지표 고르기 (초성 검색 가능)" />
+          <button type="button" class="m-browse border border-l-0 rounded-r-lg px-2.5 hover:bg-slate-50" style="border-color:var(--border);color:var(--text-secondary)" title="전체 지표에서 찾기">
+            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/></svg>
           </button>
         </div>
         <div class="m-suggest hidden absolute z-20 left-0 right-0 top-full mt-0.5 bg-white border border-slate-200 rounded shadow-lg max-h-60 overflow-auto"></div>
       </div>
-      <select class="m-type border border-slate-300 rounded px-2 py-1.5 text-sm">
-        <option value="increasing">증가형 (정량)</option>
-        <option value="decreasing">감소형 · 원가율 등 (정량)</option>
-        <option value="milestone">마일스톤 · 완료여부 (정성)</option>
-        <option value="qualitative">진척도(%) 자가평가 (정성)</option>
+      <button type="button" class="m-remove text-[12px] underline shrink-0 mt-2.5" style="color:var(--red)">삭제</button>
+    </div>
+    <p class="m-kpi-status text-[11.5px]"></p>
+
+    <!-- 지표 속성: 기준정보에 연결되면 배지로, 새 지표면 입력칸으로 -->
+    <div class="m-attrs grid grid-cols-1 sm:grid-cols-4 gap-2">
+      <select class="m-type border rounded-lg px-2 py-1.5 text-[12.5px]" style="border-color:var(--border)">
+        <option value="increasing">높을수록 좋음</option>
+        <option value="decreasing">낮을수록 좋음</option>
+        <option value="milestone">완료 / 미완료</option>
+        <option value="qualitative">진척도(%) 입력</option>
       </select>
-      <input class="m-unit border border-slate-300 rounded px-2 py-1.5 text-sm" list="unit-options" placeholder="단위(건,명,%,억원)" />
-      <!-- 기준정보에 연결되면 유형·단위는 입력 대신 이 배지로 표시한다 (지표의 속성이지 올해 목표의 속성이 아니므로) -->
-      <div class="m-inherited hidden sm:col-span-2 flex items-center gap-2 text-sm">
-        <span class="px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs whitespace-nowrap" title="KPI 기준정보에 등록된 값입니다"></span>
-        <button type="button" class="m-edit-attrs text-[11px] text-slate-500 underline whitespace-nowrap">속성 수정</button>
-      </div>
-      <select class="m-period border border-slate-300 rounded px-2 py-1.5 text-sm">
+      <input class="m-unit border rounded-lg px-2 py-1.5 text-[12.5px]" style="border-color:var(--border)" list="unit-options" placeholder="단위 (필수)" />
+      <select class="m-accum border rounded-lg px-2 py-1.5 text-[12.5px]" style="border-color:var(--border)">
+        <option value="sum">매달 발생분 입력</option>
+        <option value="latest">누적된 값 입력</option>
+        <option value="average">기간 평균</option>
+      </select>
+      <select class="m-period border rounded-lg px-2 py-1.5 text-[12.5px]" style="border-color:var(--border)">
         <option value="monthly">월별 입력</option>
         <option value="quarterly">분기별 입력</option>
         <option value="half">반기별 입력</option>
         <option value="annual">연 1회 입력</option>
       </select>
-      <select class="m-accum border border-slate-300 rounded px-2 py-1.5 text-sm">
-        <option value="sum">합산형 (당월 실적)</option>
-        <option value="latest">누적형 (누적값)</option>
-        <option value="average">평균형 (기간 평균)</option>
-      </select>
-      <button type="button" class="m-remove text-xs text-red-500 underline justify-self-end">삭제</button>
+      <div class="m-inherited hidden sm:col-span-4 flex items-center gap-2 text-sm">
+        <span class="px-2.5 py-1 rounded-md text-[11.5px] whitespace-nowrap" style="background:var(--accent-soft);color:var(--accent)" title="KPI 기준정보에 등록된 값입니다"></span>
+        <button type="button" class="m-edit-attrs text-[11px] underline whitespace-nowrap" style="color:var(--text-secondary)">속성 수정</button>
+      </div>
     </div>
-    <p class="m-kpi-status text-[11px]"></p>
-    <p class="m-hint text-xs text-slate-400"></p>
-    <div class="m-numeric-fields space-y-2">
-      <div class="flex items-center gap-2 flex-wrap">
-        <input class="m-baseline w-full sm:w-40 border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="기준값" />
-        <span class="m-baseline-hint hidden text-[11px] text-amber-600">감소형은 기준값이 있어야 달성률이 계산됩니다</span>
-      </div>
-      <div class="border border-slate-200 rounded p-2.5" style="background:var(--surface-hover)">
-        <p class="text-xs font-medium text-slate-600 mb-1.5">목표값 설정 (하나 이상 선택)</p>
-        <div class="flex flex-wrap gap-4 mb-2 text-xs text-slate-600">
-          <label class="flex items-center gap-1.5"><input type="checkbox" class="m-use-annual" /> 연간(최종) 목표값</label>
-          <label class="flex items-center gap-1.5"><input type="checkbox" class="m-use-period" /> 월별/분기별 목표값</label>
-        </div>
-        <div class="m-annual-wrap hidden mb-2">
-          <input class="m-target w-full sm:w-48 border border-slate-300 rounded px-2 py-1.5 text-sm" type="number" step="any" placeholder="연간 목표값" />
-          <span class="m-annual-fmt text-[11px] text-slate-400 ml-1"></span>
-        </div>
-        <div class="m-period-block hidden">
-          <div class="flex flex-wrap items-center gap-3 mb-1.5">
-            <button type="button" class="m-fill-even text-[11px] text-slate-600 underline">연간값 균등분배</button>
-            <button type="button" class="m-fill-first text-[11px] text-slate-600 underline">첫 칸 값으로 채우기</button>
-            <button type="button" class="m-fill-clear text-[11px] text-slate-400 underline">전체 지우기</button>
-            <span class="m-period-sum text-[11px] ml-auto text-slate-500"></span>
+    <p class="m-hint text-[11.5px]" style="color:var(--text-tertiary)"></p>
+
+    <!-- 목표값: 이 단계의 주인공 -->
+    <div class="m-numeric-fields rounded-lg p-3.5" style="background:var(--surface-hover);border:1px solid var(--border)">
+      <div class="flex flex-wrap items-end gap-4">
+        <div>
+          <label class="field-label !mb-1 !text-[12px]">올해 목표값</label>
+          <div class="flex items-center gap-1.5">
+            <input class="m-target w-40 border rounded-lg px-2.5 py-2 text-sm text-right font-semibold" style="border-color:var(--border)" type="number" step="any" placeholder="숫자만" />
+            <span class="m-unit-label text-[12.5px]" style="color:var(--text-secondary)"></span>
           </div>
-          <div class="m-period-target-wrap grid grid-cols-3 sm:grid-cols-4 gap-2"></div>
+          <p class="m-annual-fmt text-[11px] mt-1" style="color:var(--text-tertiary)"></p>
+        </div>
+        <div>
+          <label class="field-label !mb-1 !text-[12px]">시작값<span class="m-baseline-help"></span></label>
+          <input class="m-baseline w-32 border rounded-lg px-2.5 py-2 text-sm text-right" style="border-color:var(--border)" type="number" step="any" placeholder="작년 실적" />
+          <p class="m-baseline-hint hidden text-[11px] mt-1" style="color:var(--amber)">낮을수록 좋은 지표는 시작값이 있어야 달성률이 계산됩니다</p>
         </div>
       </div>
+
+      <details class="m-period-block mt-3 pt-3 border-t" style="border-color:var(--border)" open>
+        <summary class="text-[12px] cursor-pointer" style="color:var(--text-secondary)">기간별 목표 (자동으로 나눠 넣었습니다 — 고칠 수 있습니다)</summary>
+        <div class="mt-2.5">
+          <div class="flex flex-wrap items-center gap-3 mb-2">
+            <button type="button" class="m-fill-even text-[11px] underline" style="color:var(--text-secondary)">목표값으로 다시 나누기</button>
+            <button type="button" class="m-fill-first text-[11px] underline" style="color:var(--text-secondary)">첫 칸 값으로 채우기</button>
+            <button type="button" class="m-fill-clear text-[11px] underline" style="color:var(--text-tertiary)">전체 지우기</button>
+            <span class="m-period-sum text-[11px] ml-auto"></span>
+          </div>
+          <div class="m-period-target-wrap period-grid"></div>
+        </div>
+      </details>
     </div>
   </div>
 </template>
@@ -176,6 +218,7 @@ let PROFILE, GOAL_ID = new URLSearchParams(location.search).get("id");
 let GOAL_YEAR = getSelectedYear();
 let GOAL_COMPANY_ID = null; // 수정 시에는 그 목표가 속한 회사를 그대로 유지한다
 let LOADED_METRIC_IDS = []; // 불러온 지표 id. 화면에서 지워진 지표만 골라 삭제하기 위해 기억해둔다
+let STEP = 1;
 
 (async function init() {
   PROFILE = await requireAuth();
@@ -184,13 +227,66 @@ let LOADED_METRIC_IDS = []; // 불러온 지표 id. 화면에서 지워진 지�
     document.body.innerHTML = "<p class='p-6 text-red-600'>목표를 작성할 권한이 없습니다.</p>";
     return;
   }
-  renderNav(PROFILE, "goals");
+  renderNav(PROFILE, "plan");
   GOAL_COMPANY_ID = PROFILE.company_id;
+
+  renderSmartFields();
+
   if (GOAL_ID) await loadGoal(GOAL_ID);
   else { await loadBusinessUnits(); await loadKpiDefinitions(); addMetricRow(); }
-  document.getElementById("page-title").textContent = (GOAL_ID ? "SMART 목표 수정" : "SMART 목표 작성") + ` (${GOAL_YEAR}년)`;
-  renderSubmitButtons();
+
+  document.getElementById("page-title").textContent = GOAL_ID ? "목표 수정" : "목표 작성";
+  document.getElementById("page-sub").textContent =
+    `${GOAL_YEAR}년 사업계획 · 전략 이름과 KPI 지표만 있으면 제출할 수 있습니다`;
+
+  document.getElementById("intro-root").innerHTML = introBannerHtml(
+    "goal-form",
+    "한 번에 다 쓰지 않아도 됩니다",
+    "SMART 다섯 칸(S·M·A·R·T)을 세 단계로 나눠 받되, 다섯 칸 모두 선택 항목입니다. 반드시 있어야 하는 것은 전략 이름과 KPI 지표·목표값뿐입니다. 입력한 내용은 단계를 넘길 때마다 자동으로 저장되므로 중간에 나갔다가 돌아와도 이어서 쓸 수 있습니다."
+  );
+
+  if (!GOAL_ID) await renderCarryoverBanner();
+  goToStep(1);
 })();
+
+// SMART 다섯 칸을 단계에 나눠 배치한다 — 질문을 크게, 알파벳 배지와 영어 용어는 그 앞에.
+//  1단계: S (무엇을 할지)        — 전략 이름과 함께
+//  2단계: M (어떻게 잴지)        — KPI 지표 바로 아래. 측정 방법이므로 여기가 제자리다
+//  3단계: A · R · T             — 근거와 일정
+// 다섯 칸 모두 선택 항목이다 (운영 정책).
+const OPTIONAL_TAG = `<span class="font-normal text-[11.5px] ml-1.5" style="color:var(--text-tertiary)">(선택)</span>`;
+
+function smartFieldHtml(f) {
+  return `<div class="mb-4">
+    <label class="field-label" for="${f.key}">${smartLabelHtml(f)}${OPTIONAL_TAG}</label>
+    <textarea id="${f.key}" rows="2" class="w-full border rounded-lg px-3 py-2 text-sm" style="border-color:var(--border)"></textarea>
+    <p class="field-hint">${escapeHtml(f.hint)}</p>
+  </div>`;
+}
+
+function renderSmartFields() {
+  const byKey = k => SMART_FIELDS.find(f => f.key === k);
+  // 1단계의 S는 전략 이름 아래에 이미 자리가 잡혀 있으므로 라벨만 끼워 넣는다
+  document.getElementById("specific-label").innerHTML = smartLabelHtml(byKey("specific_text")) + OPTIONAL_TAG;
+  document.getElementById("measurable-wrap").innerHTML = smartFieldHtml(byKey("measurable_text"));
+  document.getElementById("smart-rest").innerHTML =
+    ["achievable_text", "relevant_text", "timebound_text"].map(k => smartFieldHtml(byKey(k))).join("");
+}
+
+// 작성을 시작할 때 가장 먼저 권하는 길 — 지표와 시작값이 채워진 채로 시작된다
+async function renderCarryoverBanner() {
+  const { data } = await sb.from("goals").select("id").eq("year", GOAL_YEAR - 1)
+    .eq("company_id", GOAL_COMPANY_ID || "___none___").limit(1);
+  if (!(data || []).length) return;
+  document.getElementById("carryover-root").innerHTML = `
+    <div class="intro-banner">
+      <div>
+        <p class="intro-title">${GOAL_YEAR - 1}년 목표를 불러와 시작하면 훨씬 빠릅니다</p>
+        <p class="intro-body">지표와 시작값이 채워진 채로 복사되므로 목표값만 고치면 됩니다.</p>
+      </div>
+      <a href="goals.html?action=carryover" class="btn btn-secondary !text-[12px] !py-1.5 shrink-0">작년 목표 불러오기</a>
+    </div>`;
+}
 
 // 역할에 따라 제출 버튼 문구와 다음 상태가 달라진다
 //  · 사업부 담당자 → 계열사 담당자에게 검토 요청 (submitted)
@@ -199,11 +295,101 @@ function submitTargetStatus() {
   return isCompanyStaff(PROFILE) ? "company_approved" : "submitted";
 }
 
-function renderSubmitButtons() {
-  const btn = document.querySelector('#goal-form button[data-mode="submit"]');
-  if (!btn) return;
-  if (isHoldcoEditor(PROFILE)) { btn.classList.add("hidden"); return; }
-  btn.textContent = isCompanyStaff(PROFILE) ? "지주사 검토 제출" : "계열사 검토 제출";
+// ============================================================
+//  단계 이동
+// ============================================================
+function goToStep(n) {
+  STEP = n;
+  document.querySelectorAll(".step-panel").forEach(p => p.classList.toggle("active", p.dataset.panel === String(n)));
+  document.querySelectorAll(".step").forEach(s => {
+    const i = parseInt(s.dataset.step, 10);
+    s.classList.toggle("active", i === n);
+    s.classList.toggle("done", i < n);
+  });
+
+  document.getElementById("btn-prev").hidden = (n === 1);
+  document.getElementById("btn-next").hidden = (n === 3);
+  // SMART 칸이 선택이므로 지표까지 정해진 2단계부터 제출할 수 있다
+  const submitBtn = document.getElementById("btn-submit");
+  submitBtn.hidden = (n === 1) || isHoldcoEditor(PROFILE);
+  submitBtn.textContent = isCompanyStaff(PROFILE) ? "지주사에 제출" : "계열사에 제출";
+  updateSubmitHint();
+
+  document.getElementById("error-msg").classList.add("hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+// 비어 있는 SMART 칸을 제출 버튼 옆에 적어둔다.
+// 막지는 않지만 모르고 빠뜨리는 일은 줄인다. 확인창을 띄우면 매번 누르게 되어 결국 안 읽는다.
+function updateSubmitHint() {
+  const el = document.getElementById("submit-hint");
+  if (!el) return;
+  if (document.getElementById("btn-submit").hidden) { el.textContent = ""; return; }
+  const empty = emptySmartFields();
+  if (!empty.length) { el.textContent = "SMART 다섯 칸이 모두 채워졌습니다"; el.style.color = "var(--green)"; return; }
+  el.textContent = `${empty.join(", ")} 비어 있음 (선택 항목이라 이대로 제출할 수 있습니다)`;
+  el.style.color = "var(--text-tertiary)";
+}
+
+// 비어 있는 SMART 칸이 있으면 그 칸이 있는 단계로 데려가 포커스를 준다.
+// 오류 문구만 띄우고 끝내면, 어느 단계의 어느 칸인지 사용자가 찾아 헤맨다.
+const STEP_OF_FIELD = {
+  strategy_name: 1, specific_text: 1,
+  measurable_text: 2,
+  achievable_text: 3, relevant_text: 3, timebound_text: 3
+};
+function focusField(key, message) {
+  const step = STEP_OF_FIELD[key] || 1;
+  if (STEP !== step) goToStep(step);
+  const el = document.getElementById(key);
+  showError(message, el);
+  if (el) setTimeout(() => el.focus(), 150);
+}
+
+// 비어 있는 SMART 칸 목록. 제출을 막지는 않고, 제출 직전에 한 번 알려주는 데 쓴다.
+function emptySmartFields() {
+  return SMART_FIELDS.filter(f => {
+    const el = document.getElementById(f.key);
+    return el && !el.value.trim();
+  }).map(f => `${f.letter} · ${f.label}`);
+}
+
+document.getElementById("btn-prev").addEventListener("click", () => goToStep(Math.max(1, STEP - 1)));
+document.getElementById("btn-next").addEventListener("click", async () => {
+  if (await leaveStep(STEP)) goToStep(Math.min(3, STEP + 1));
+});
+document.querySelectorAll(".step").forEach(s => {
+  s.addEventListener("click", async () => {
+    const target = parseInt(s.dataset.step, 10);
+    if (target === STEP) return;
+    // 뒤로 가는 것은 자유롭게, 앞으로 갈 때만 지금 단계를 검사한다
+    if (target < STEP) { goToStep(target); return; }
+    for (let i = STEP; i < target; i++) { if (!await leaveStep(i)) return; }
+    goToStep(target);
+  });
+});
+
+// 단계를 떠날 때 그 단계만 검사하고 저장한다 (한 화면에서 전부 검사하던 방식의 반대)
+async function leaveStep(n) {
+  // SMART 칸은 선택이므로 단계를 넘길 때 막지 않는다.
+  // 없으면 관리 자체가 안 되는 것(전략 이름·사업부·지표)만 여기서 검사한다.
+  if (n === 1) {
+    if (!document.getElementById("strategy_name").value.trim()) {
+      focusField("strategy_name", "전략(목표) 이름을 입력해주세요. 목록과 보고서에 이 이름이 그대로 나옵니다.");
+      return false;
+    }
+    if (isBuStaff(PROFILE) && !document.getElementById("business_unit_id").value) {
+      showError("배정된 사업부가 없습니다. 지주사 담당자에게 사업부 배정을 요청해주세요.");
+      return false;
+    }
+    return await saveAll({ silent: true, metrics: false });
+  }
+  if (n === 2) {
+    const r = collectMetrics();
+    if (r.error) { showError(r.error, r.row); return false; }
+    return await saveAll({ silent: true, metrics: true });
+  }
+  return true;
 }
 
 async function loadBusinessUnits(selectedId) {
@@ -219,19 +405,22 @@ async function loadBusinessUnits(selectedId) {
     units = [...(PROFILE.business_units || [])].filter(visible).sort((a, b) => a.name.localeCompare(b.name, "ko"));
     sel.innerHTML = units.map(b => `<option value="${b.id}">${optionLabel(b)}</option>`).join("")
       || `<option value="">배정된 사업부가 없습니다</option>`;
+    document.getElementById("bu-hint").textContent = units.length
+      ? "담당 사업부가 자동으로 선택됩니다." : "배정된 사업부가 없어 목표를 등록할 수 없습니다.";
   } else {
     const { data } = await sb.from("business_units")
       .select("id,name,is_active,active_from_year,active_to_year")
       .eq("company_id", GOAL_COMPANY_ID || "___none___").order("name");
     units = (data || []).filter(visible);
     sel.innerHTML = `<option value="">(전사 공통 · 사업부 미지정)</option>` + units.map(b => `<option value="${b.id}">${optionLabel(b)}</option>`).join("");
+    document.getElementById("bu-hint").textContent = "관리번호는 사업부별로 1번부터 매겨집니다.";
   }
   if (selectedId) sel.value = selectedId;
 }
 
 async function loadGoal(id) {
   const { data: goal, error } = await sb.from("goals").select("*").eq("id", id).single();
-  if (error || !goal) { alert("목표를 불러올 수 없습니다."); return; }
+  if (error || !goal) { toastError("목표를 불러올 수 없습니다."); return; }
   GOAL_YEAR = goal.year;
   GOAL_COMPANY_ID = goal.company_id;
   await loadBusinessUnits(goal.business_unit_id);
@@ -312,7 +501,7 @@ function sortKpiDefs(list) {
 
 function kpiMetaText(def) {
   const u = kpiUsage(def.id);
-  const parts = [METRIC_TYPE_LABEL[def.metric_type].replace(/\s*\(.*\)/, "")];
+  const parts = [(METRIC_TYPE_LABEL[def.metric_type] || "").split(" (")[0]];
   if (def.unit) parts.push(def.unit);
   if (u.years.length) parts.push(`${[...u.years].sort().join("·")} 사용`);
   else parts.push("사용 이력 없음");
@@ -418,7 +607,7 @@ function pickKpi(row, def) {
   row.querySelector(".m-name").value = def.name;
   hideSuggestions(row);
   syncKpiLink(row);
-  DIRTY = true;
+  markDirty();
 }
 
 // ---- 전체 지표 찾기 팝업 ----
@@ -507,7 +696,7 @@ document.getElementById("kpi-modal-create").addEventListener("click", () => {
   if (!q || !MODAL_ROW) return;
   MODAL_ROW.querySelector(".m-name").value = q;
   syncKpiLink(MODAL_ROW);
-  DIRTY = true;
+  markDirty();
   closeKpiModal();
 });
 document.addEventListener("keydown", (e) => {
@@ -529,6 +718,7 @@ function syncKpiLink(row, opts) {
   if (!name) {
     row.dataset.kpiId = "";
     statusEl.textContent = "";
+    applyInheritedAttrs(row, null);
     return;
   }
 
@@ -544,11 +734,11 @@ function syncKpiLink(row, opts) {
       row.dataset.editAttrs = "";
       syncMetricRowType(row);
       renderPeriodTargetInputs(row, null);
-      syncTargetModeVisibility(row);
     }
     applyInheritedAttrs(row, def);
-    statusEl.textContent = "기존 지표와 연결됨 — 유형·단위는 KPI 기준정보를 따르고, 전년도 실적과 비교됩니다";
-    statusEl.className = "m-kpi-status text-[11px] text-green-600";
+    statusEl.textContent = "기존 지표와 연결됐습니다 — 방향·단위는 기준정보를 따르고, 작년 실적과 비교됩니다";
+    statusEl.className = "m-kpi-status text-[11.5px] text-green-600";
+    suggestMoneyUnit(row);
     return;
   }
 
@@ -562,11 +752,24 @@ function syncKpiLink(row, opts) {
   }).slice(0, 3);
   if (similar.length) {
     statusEl.textContent = `새 지표로 등록됩니다. 혹시 이 지표인가요? ${similar.map(s => s.name).join(", ")}`;
-    statusEl.className = "m-kpi-status text-[11px] text-amber-600";
+    statusEl.className = "m-kpi-status text-[11.5px] text-amber-600";
   } else {
     statusEl.textContent = "새 지표로 등록됩니다 (다음 해부터 이 이름으로 선택할 수 있습니다)";
-    statusEl.className = "m-kpi-status text-[11px] text-slate-400";
+    statusEl.className = "m-kpi-status text-[11.5px] text-slate-400";
   }
+  suggestMoneyUnit(row);
+}
+
+// 금액으로 보이는 지표는 그룹 표준 단위를 미리 넣어준다.
+// 계열사마다 백만원·억원을 섞어 쓰면 전사 비교가 불가능해지기 때문이다.
+function suggestMoneyUnit(row) {
+  const unitEl = row.querySelector(".m-unit");
+  if (unitEl.value.trim()) return;
+  const name = row.querySelector(".m-name").value;
+  if (!/매출|금액|이익|비용|원가|수익|자산|투자/.test(name)) return;
+  unitEl.value = MONEY_UNIT_DEFAULT;
+  unitEl.dataset.suggested = "1";
+  updateUnitLabel(row);
 }
 
 // 유형·단위는 지표의 속성이라 매년 다시 고를 필요가 없다.
@@ -582,6 +785,7 @@ function applyInheritedAttrs(row, def) {
   const typeEl = row.querySelector(".m-type");
   const unitEl = row.querySelector(".m-unit");
   const accumEl = row.querySelector(".m-accum");
+  const periodEl = row.querySelector(".m-period");
   const editing = row.dataset.editAttrs === "1";
   const isNonNumeric = (typeEl.value === "milestone" || typeEl.value === "qualitative");
 
@@ -590,21 +794,25 @@ function applyInheritedAttrs(row, def) {
     inherited.classList.add("hidden");
     inherited.classList.remove("flex");
     typeEl.classList.remove("hidden");
+    periodEl.classList.remove("hidden");
     accumEl.classList.toggle("hidden", isNonNumeric);
     unitEl.classList.toggle("hidden", isNonNumeric);
+    updateUnitLabel(row);
     return;
   }
 
   typeEl.classList.add("hidden");
   unitEl.classList.add("hidden");
   accumEl.classList.add("hidden");
+  periodEl.classList.add("hidden");
   inherited.classList.remove("hidden");
   inherited.classList.add("flex");
 
-  const typeLabel = METRIC_TYPE_LABEL[def.metric_type].replace(/\s*\(.*\)/, "");
+  const typeLabel = (METRIC_TYPE_LABEL[def.metric_type] || "").split(" (")[0];
   const accLabel = isNonNumeric ? "" : ` · ${ACCUMULATION_SHORT[def.accumulation || "sum"]}`;
   const unitLabel = def.unit ? ` · ${def.unit}` : "";
-  badge.textContent = typeLabel + accLabel + unitLabel;
+  const periodLabelText = ` · ${PERIOD_TYPE_LABEL[row.querySelector(".m-period").value] || ""}`;
+  badge.textContent = typeLabel + accLabel + unitLabel + periodLabelText;
   badge.title = ACCUMULATION_INPUT_HINT[def.accumulation || "sum"];
 
   if (def.unit) {
@@ -615,14 +823,19 @@ function applyInheritedAttrs(row, def) {
     editBtn.textContent = "단위 입력";
     editBtn.classList.remove("hidden");
   }
+  updateUnitLabel(row);
 }
+
+// 물음표 도움말은 한 번만 만들어 재사용한다
+const METRIC_TYPE_HELP_TIP = helpTip(METRIC_TYPE_HELP);
+const ACCUMULATION_HELP_TIP = helpTip(ACCUMULATION_HELP);
 
 // 지표 유형별 안내 문구는 항상 보여준다 (선택 전에 무엇을 고를지 판단할 수 있도록)
 const METRIC_TYPE_HINT = {
   increasing: "실적이 클수록 좋은 지표입니다. 달성률 = 실적 ÷ 목표값",
-  decreasing: "실적이 작을수록 좋은 지표입니다(원가율 등). 달성률 = (기준값 − 실적) ÷ (기준값 − 목표값) — 기준값이 반드시 필요합니다",
-  milestone: "매 기간 완료/미완료로만 입력합니다 (기준값·목표값 불필요)",
-  qualitative: "기준값·목표값 없이, 매 기간 담당자가 진척도(0~100%)를 직접 입력합니다"
+  decreasing: "실적이 작을수록 좋은 지표입니다(원가율 등). 달성률 = (시작값 − 실적) ÷ (시작값 − 목표값) — 시작값이 반드시 필요합니다",
+  milestone: "매 기간 완료/미완료로만 입력합니다 (시작값·목표값이 필요 없습니다)",
+  qualitative: "시작값·목표값 없이, 매 기간 담당자가 진척도(0~100%)를 직접 입력합니다"
 };
 
 function syncMetricRowType(row) {
@@ -630,7 +843,10 @@ function syncMetricRowType(row) {
   const isNonNumeric = (type === "milestone" || type === "qualitative");
   row.querySelector(".m-numeric-fields").classList.toggle("hidden", isNonNumeric);
   const accHint = ACCUMULATION_INPUT_HINT[row.querySelector(".m-accum").value] || "";
-  row.querySelector(".m-hint").textContent = (METRIC_TYPE_HINT[type] || "") + (accHint ? ` · ${accHint}` : "");
+  // 처음 보는 말(집계 방식) 옆에는 물음표로 한 줄 설명을 붙인다
+  row.querySelector(".m-hint").innerHTML =
+    escapeHtml(METRIC_TYPE_HINT[type] || "") + METRIC_TYPE_HELP_TIP +
+    (accHint && !isNonNumeric ? ` · ${escapeHtml(accHint)}${ACCUMULATION_HELP_TIP}` : "");
   row.querySelector(".m-baseline-hint").classList.toggle("hidden", type !== "decreasing");
   // 단위 입력칸 노출 여부는 기준정보 연결 상태까지 함께 따져야 하므로 한곳에서 처리한다
   applyInheritedAttrs(row, findKpiByName(row.querySelector(".m-name").value));
@@ -638,6 +854,16 @@ function syncMetricRowType(row) {
 
 function periodInputs(row) {
   return [...row.querySelectorAll(".m-period-target-input")];
+}
+
+function currentUnit(row) {
+  return row.querySelector(".m-unit").value.trim();
+}
+
+function updateUnitLabel(row) {
+  const el = row.querySelector(".m-unit-label");
+  if (el) el.textContent = currentUnit(row) || "";
+  updateAnnualFormat(row);
 }
 
 // 기간별 목표값을 집계 방식대로 묶어 연간 목표와 맞는지 실시간으로 알려준다.
@@ -667,18 +893,17 @@ function updatePeriodSum(row) {
     rolledLabel = "합계";
   }
 
-  const annualUsed = row.querySelector(".m-use-annual").checked;
   const annualRaw = row.querySelector(".m-target").value;
   const annual = Number(annualRaw);
   let text = `${values.length}개 기간 입력 · ${rolledLabel} ${rolled.toLocaleString()}`;
   let cls = "text-slate-500";
-  if (annualUsed && annualRaw !== "" && !isNaN(annual)) {
+  if (annualRaw !== "" && !isNaN(annual)) {
     const diff = Math.round((rolled - annual) * 1000) / 1000;
     if (diff !== 0) {
-      text += ` (연간 목표 ${annual.toLocaleString()} 대비 ${diff > 0 ? "+" : ""}${diff.toLocaleString()})`;
+      text += ` (목표값 ${annual.toLocaleString()} 대비 ${diff > 0 ? "+" : ""}${diff.toLocaleString()})`;
       cls = "text-amber-600";
     } else {
-      text += " · 연간 목표와 일치";
+      text += " · 목표값과 일치";
       cls = "text-green-600";
     }
   }
@@ -688,7 +913,7 @@ function updatePeriodSum(row) {
 
 function updateAnnualFormat(row) {
   const v = row.querySelector(".m-target").value;
-  const unit = row.querySelector(".m-unit").value.trim();
+  const unit = currentUnit(row);
   row.querySelector(".m-annual-fmt").textContent =
     v === "" || isNaN(Number(v)) ? "" : Number(v).toLocaleString() + (unit ? " " + unit : "");
 }
@@ -703,19 +928,20 @@ function renderPeriodTargetInputs(row, existingMap) {
   const periods = periodsForYear(GOAL_YEAR, periodType);
   const map = existingMap || {};
   row.querySelector(".m-period-target-wrap").innerHTML = periods.map(p => `
-    <div>
-      <label class="block text-[10px] text-slate-400 mb-0.5">${periodLabel(p)}</label>
-      <input type="number" step="any" class="m-period-target-input w-full border border-slate-300 rounded px-1.5 py-1 text-xs" data-period="${p}" value="${map[p] ?? ''}" placeholder="-" />
+    <div class="period-cell">
+      <label>${periodLabel(p)}</label>
+      <input type="number" step="any" class="m-period-target-input" data-period="${p}" value="${map[p] ?? ''}" placeholder="-" />
     </div>
   `).join("");
   // 되돌리기용으로 현재 기간 유형을 기억해둔다
   row.dataset.periodType = periodType;
-  periodInputs(row).forEach(inp => inp.addEventListener("input", () => updatePeriodSum(row)));
-}
-
-function syncTargetModeVisibility(row) {
-  row.querySelector(".m-annual-wrap").classList.toggle("hidden", !row.querySelector(".m-use-annual").checked);
-  row.querySelector(".m-period-block").classList.toggle("hidden", !row.querySelector(".m-use-period").checked);
+  // 불러온 값이 있으면 사용자가 손댄 것으로 보고 자동 분배 대상에서 뺀다
+  row.dataset.periodAuto = Object.keys(map).length ? "0" : "1";
+  periodInputs(row).forEach(inp => inp.addEventListener("input", () => {
+    row.dataset.periodAuto = "0"; // 직접 고쳤으면 더 이상 자동으로 덮어쓰지 않는다
+    updatePeriodSum(row);
+    markDirty();
+  }));
   updatePeriodSum(row);
 }
 
@@ -735,18 +961,19 @@ function addMetricRow(m, periodTargetsMap) {
     row.querySelector(".m-target").value = m.target_value ?? "";
     row.querySelector(".m-period").value = m.period_type || "monthly";
     row.querySelector(".m-accum").value = m.accumulation || "sum";
-    row.querySelector(".m-use-annual").checked = m.target_value !== null && m.target_value !== undefined;
-    row.querySelector(".m-use-period").checked = !!(periodTargetsMap && Object.keys(periodTargetsMap).length);
   } else {
     // 새 지표는 직전 지표의 기간 유형·단위를 물려받는다 (같은 목표 안에서는 대개 동일하기 때문)
     const prev = root.lastElementChild;
-    row.querySelector(".m-use-annual").checked = true;
     if (prev) {
       row.querySelector(".m-period").value = prev.querySelector(".m-period").value;
       row.querySelector(".m-accum").value = prev.querySelector(".m-accum").value;
       row.querySelector(".m-unit").value = prev.querySelector(".m-unit").value;
     }
   }
+
+  // 시작값·집계 방식 같은 낯선 말 옆에는 한 줄 설명을 붙인다
+  row.querySelector(".m-baseline-help").innerHTML =
+    helpTip("작년 실적처럼 올해 출발점이 되는 값입니다. ‘낮을수록 좋음’ 지표는 이 값이 있어야 달성률을 계산할 수 있습니다.");
 
   const nameEl = row.querySelector(".m-name");
   nameEl.addEventListener("input", () => { syncKpiLink(row); renderSuggestions(row); });
@@ -765,34 +992,41 @@ function addMetricRow(m, periodTargetsMap) {
     row.dataset.editAttrs = "1";
     applyInheritedAttrs(row, def);
     const statusEl = row.querySelector(".m-kpi-status");
-    statusEl.className = "m-kpi-status text-[11px] text-amber-600";
+    statusEl.className = "m-kpi-status text-[11.5px] text-amber-600";
     statusEl.textContent = (def && !def.unit)
       ? "입력한 단위는 KPI 기준정보에 저장되어 다음부터 자동으로 채워집니다"
       : (canEditKpiAttrs()
-          ? "저장하면 이 지표의 기준정보(유형·단위)도 함께 수정됩니다"
+          ? "저장하면 이 지표의 기준정보(방향·단위)도 함께 수정됩니다"
           : "이 목표에만 적용됩니다 (기준정보 수정은 계열사 담당자 권한)");
     (def && !def.unit ? row.querySelector(".m-unit") : row.querySelector(".m-type")).focus();
   });
   row.querySelector(".m-remove").addEventListener("click", () => removeMetricRow(row));
-  row.querySelector(".m-type").addEventListener("change", () => syncMetricRowType(row));
-  row.querySelector(".m-unit").addEventListener("input", () => { updateAnnualFormat(row); });
-  row.querySelector(".m-target").addEventListener("input", () => { updateAnnualFormat(row); updatePeriodSum(row); });
-  row.querySelector(".m-period").addEventListener("change", () => changePeriodType(row));
-  row.querySelector(".m-accum").addEventListener("change", () => { syncMetricRowType(row); updatePeriodSum(row); });
-  row.querySelector(".m-use-annual").addEventListener("change", () => syncTargetModeVisibility(row));
-  row.querySelector(".m-use-period").addEventListener("change", () => syncTargetModeVisibility(row));
+  row.querySelector(".m-type").addEventListener("change", () => { syncMetricRowType(row); markDirty(); });
+  row.querySelector(".m-unit").addEventListener("input", () => { updateUnitLabel(row); markDirty(); });
+  // 목표값을 넣으면 기간별 목표를 바로 나눠 넣는다 (예전에는 버튼을 찾아 눌러야 했다)
+  row.querySelector(".m-target").addEventListener("input", () => {
+    updateAnnualFormat(row);
+    autoFillPeriods(row);
+    updatePeriodSum(row);
+    markDirty();
+  });
+  row.querySelector(".m-baseline").addEventListener("input", () => { autoFillPeriods(row); markDirty(); });
+  row.querySelector(".m-period").addEventListener("change", () => { changePeriodType(row); markDirty(); });
+  row.querySelector(".m-accum").addEventListener("change", () => {
+    syncMetricRowType(row); autoFillPeriods(row); updatePeriodSum(row); markDirty();
+  });
   row.querySelector(".m-fill-even").addEventListener("click", () => fillPeriodsEvenly(row));
   row.querySelector(".m-fill-first").addEventListener("click", () => fillPeriodsFromFirst(row));
   row.querySelector(".m-fill-clear").addEventListener("click", () => {
     periodInputs(row).forEach(i => i.value = "");
+    row.dataset.periodAuto = "0";
     updatePeriodSum(row);
   });
 
   root.appendChild(row);
   syncMetricRowType(row);
   renderPeriodTargetInputs(row, periodTargetsMap);
-  syncTargetModeVisibility(row);
-  updateAnnualFormat(row);
+  updateUnitLabel(row);
   // 불러온 지표는 저장된 값이 우선이므로 자동 채움 없이 연결 상태만 표시한다
   syncKpiLink(row, { skipAutofill: !!m });
 }
@@ -801,7 +1035,7 @@ function addMetricRow(m, periodTargetsMap) {
 function removeMetricRow(row) {
   const rows = document.querySelectorAll(".metric-row");
   if (rows.length <= 1) {
-    alert("지표는 최소 1개가 필요합니다. 내용을 수정해서 사용하세요.");
+    toastError("지표는 최소 1개가 필요합니다. 내용을 수정해서 사용하세요.");
     return;
   }
   const name = row.querySelector(".m-name").value.trim() || "이 지표";
@@ -813,40 +1047,52 @@ function removeMetricRow(row) {
     if (!confirm(warn)) return;
   }
   row.remove();
+  markDirty();
 }
 
 // 월별↔분기별 전환: 이미 입력한 기간별 목표값이 있으면 지워지므로 확인을 받는다
 function changePeriodType(row) {
   const filled = periodInputs(row).filter(i => i.value !== "").length;
-  if (filled > 0 && !confirm(`기간 유형을 바꾸면 입력한 기간별 목표값 ${filled}칸이 초기화됩니다. 계속할까요?`)) {
+  const auto = row.dataset.periodAuto === "1";
+  if (filled > 0 && !auto && !confirm(`기간 유형을 바꾸면 입력한 기간별 목표값 ${filled}칸이 초기화됩니다. 계속할까요?`)) {
     row.querySelector(".m-period").value = row.dataset.periodType; // 이전 값으로 되돌린다
     return;
   }
   renderPeriodTargetInputs(row, null);
+  row.dataset.periodAuto = "1";
+  autoFillPeriods(row);
   updatePeriodSum(row);
+}
+
+// 목표값만 넣으면 기간별 목표가 자동으로 채워지도록 한다.
+// 사용자가 직접 고친 적이 있으면(periodAuto=0) 손대지 않는다.
+function autoFillPeriods(row) {
+  if (row.dataset.periodAuto !== "1") return;
+  const raw = row.querySelector(".m-target").value;
+  if (raw === "" || isNaN(Number(raw))) {
+    periodInputs(row).forEach(i => i.value = "");
+    return;
+  }
+  distributePeriods(row);
 }
 
 // 연간 목표값을 기간별로 펼친다. 집계 방식마다 "그 기간의 목표"가 다르다.
 //  · 합산형: 연간 ÷ 기간수 (마지막 칸에서 반올림 오차 보정)
 //  · 누적형: 연간까지 균등하게 올라가는 누적값 (100 → 200 → 300 …)
 //  · 평균형: 모든 기간이 같은 수준
-function fillPeriodsEvenly(row) {
+function distributePeriods(row) {
   const annual = Number(row.querySelector(".m-target").value);
-  if (row.querySelector(".m-target").value === "" || isNaN(annual)) {
-    alert("먼저 '연간(최종) 목표값'을 입력해주세요.");
-    return;
-  }
   const acc = row.querySelector(".m-accum").value;
   const baselineRaw = row.querySelector(".m-baseline").value;
   const inputs = periodInputs(row);
   const n = inputs.length;
+  if (!n) return;
   // 화면 표시용 참고값과 같은 규칙을 쓴다 (common.js의 referencePeriodTarget)
   const pseudoMetric = {
     target_value: annual,
     baseline_value: baselineRaw === "" ? null : Number(baselineRaw),
     accumulation: acc
   };
-
   inputs.forEach((inp, idx) => {
     if (acc === "sum") {
       const each = Math.round((annual / n) * 100) / 100;
@@ -855,35 +1101,72 @@ function fillPeriodsEvenly(row) {
       inp.value = referencePeriodTarget(pseudoMetric, idx, n);
     }
   });
+}
+
+function fillPeriodsEvenly(row) {
+  if (row.querySelector(".m-target").value === "" || isNaN(Number(row.querySelector(".m-target").value))) {
+    toastError("먼저 '올해 목표값'을 입력해주세요.");
+    return;
+  }
+  distributePeriods(row);
+  row.dataset.periodAuto = "1";
   updatePeriodSum(row);
+  markDirty();
 }
 
 // 첫 칸에 적은 값을 나머지 기간에 그대로 복사한다
 function fillPeriodsFromFirst(row) {
   const inputs = periodInputs(row);
   if (!inputs.length || inputs[0].value === "") {
-    alert("첫 번째 기간의 목표값을 먼저 입력해주세요.");
+    toastError("첫 번째 기간의 목표값을 먼저 입력해주세요.");
     return;
   }
   inputs.forEach(inp => inp.value = inputs[0].value);
+  row.dataset.periodAuto = "0";
   updatePeriodSum(row);
+  markDirty();
 }
 
-document.getElementById("add-metric").addEventListener("click", () => addMetricRow());
+document.getElementById("add-metric").addEventListener("click", () => { addMetricRow(); markDirty(); });
 
-// 저장하지 않고 화면을 벗어나면 작성 내용이 모두 사라지므로 경고한다
-let DIRTY = false;
-document.getElementById("goal-form").addEventListener("input", () => { DIRTY = true; });
-document.getElementById("goal-form").addEventListener("change", () => { DIRTY = true; });
+// ============================================================
+//  자동 저장 — '임시저장' 버튼을 없앤 대신
+// ============================================================
+let DIRTY = false, SAVING = false, AUTOSAVE_TIMER = null;
+
+function markDirty() {
+  DIRTY = true;
+  setSaveState("");
+  updateSubmitHint(); // SMART 칸을 채우면 안내 문구도 따라 바뀐다
+  clearTimeout(AUTOSAVE_TIMER);
+  // 타이핑이 멈춘 뒤 잠깐 기다렸다가 저장한다 (글자마다 저장하지 않도록)
+  AUTOSAVE_TIMER = setTimeout(() => { autosave(); }, 2500);
+}
+
+function setSaveState(kind) {
+  const el = document.getElementById("save-state");
+  el.className = "save-state mt-1.5 " + (kind || "");
+  el.textContent = kind === "saving" ? "저장 중…" : kind === "saved" ? "자동 저장됨" : "";
+}
+
+// 자동 저장은 조용히 실패해도 된다. 최소 조건(전략 이름)만 갖춰지면 목표 본문을 저장한다.
+// 지표는 값이 덜 찼을 때 오류를 띄우지 않도록, 단계를 넘길 때만 저장한다.
+async function autosave() {
+  if (!DIRTY || SAVING) return;
+  if (!document.getElementById("strategy_name").value.trim()) return;
+  if (isBuStaff(PROFILE) && !document.getElementById("business_unit_id").value) return;
+  await saveAll({ silent: true, metrics: false });
+}
+
+document.getElementById("goal-form").addEventListener("input", markDirty);
+document.getElementById("goal-form").addEventListener("change", markDirty);
 window.addEventListener("beforeunload", (e) => {
   if (!DIRTY) return;
   e.preventDefault();
   e.returnValue = "";
 });
 
-document.querySelectorAll('#goal-form button[type=submit]').forEach(btn => {
-  btn.addEventListener("click", (e) => { e.preventDefault(); saveGoal(btn.dataset.mode); });
-});
+document.getElementById("btn-submit").addEventListener("click", () => saveAll({ submit: true }));
 
 function showError(msg, row) {
   const errEl = document.getElementById("error-msg");
@@ -896,7 +1179,7 @@ function showError(msg, row) {
 // DB를 건드리기 전에 전부 검증해야 한다 (예전에는 지표를 먼저 삭제한 뒤 검증해서, 검증에 걸리면 기존 지표가 사라졌음)
 function collectMetrics() {
   const rows = [...document.querySelectorAll(".metric-row")];
-  if (!rows.length) return { error: "핵심지표(KPI)를 최소 1개 등록해주세요." };
+  if (!rows.length) return { error: "KPI 지표를 최소 1개 등록해주세요." };
 
   const collected = [];
   const seenNames = new Set();
@@ -905,7 +1188,7 @@ function collectMetrics() {
     const name = row.querySelector(".m-name").value.trim();
     const type = row.querySelector(".m-type").value;
     const isNumeric = (type === "increasing" || type === "decreasing");
-    if (!name) return { error: "지표명을 입력해주세요.", row };
+    if (!name) return { error: "KPI 지표를 골라주세요.", row };
 
     const nameKey = name.replace(/\s+/g, "").toLowerCase();
     if (seenNames.has(nameKey)) return { error: `지표명 '${name}'이(가) 중복됩니다. 서로 다른 이름을 사용해주세요.`, row };
@@ -913,31 +1196,29 @@ function collectMetrics() {
 
     const baselineRaw = row.querySelector(".m-baseline").value;
     const targetRaw = row.querySelector(".m-target").value;
-    const useAnnual = row.querySelector(".m-use-annual").checked;
-    const usePeriod = row.querySelector(".m-use-period").checked;
+    const unit = row.querySelector(".m-unit").value.trim();
     const periodTargets = periodInputs(row)
       .map(i => ({ period: i.dataset.period, target_value: i.value }))
       .filter(p => p.target_value !== "");
 
     if (isNumeric) {
-      if (!useAnnual && !usePeriod) {
-        return { error: `'${name}' 지표는 목표값 설정 방식(연간 목표값 / 월별·분기별 목표값)을 하나 이상 선택해야 합니다.`, row };
+      // 목표값은 연간이든 기간별이든 하나는 있어야 한다. 둘 다 없으면 연말에 달성 여부를 판단할 수 없다.
+      if (targetRaw === "" && !periodTargets.length) {
+        return { error: `'${name}'의 올해 목표값을 입력해주세요. 목표값이 없으면 달성률을 계산할 수 없습니다.`, row };
       }
-      if (useAnnual && targetRaw === "") {
-        return { error: `'${name}' 지표의 연간 목표값을 입력해주세요. 목표값이 없으면 달성률이 계산되지 않습니다.`, row };
+      if (targetRaw !== "" && Number(targetRaw) === 0) {
+        return { error: `'${name}'의 목표값은 0이 될 수 없습니다(달성률 계산 불가).`, row };
       }
-      if (useAnnual && Number(targetRaw) === 0) {
-        return { error: `'${name}' 지표의 연간 목표값은 0이 될 수 없습니다(달성률 계산 불가).`, row };
-      }
-      if (usePeriod && !periodTargets.length) {
-        return { error: `'${name}' 지표의 월별·분기별 목표값을 최소 1개 입력해주세요.`, row };
+      // 단위를 비워둔 채 넘어가면 나중에 숫자만 남아 억원인지 건인지 알 수 없게 된다
+      if (!unit) {
+        return { error: `'${name}'의 단위를 입력해주세요. 금액 지표는 ${MONEY_UNIT_DEFAULT}을(를) 권합니다.`, row };
       }
       if (type === "decreasing") {
         if (baselineRaw === "") {
-          return { error: `'${name}'은(는) 감소형 지표라 기준값이 반드시 필요합니다. (달성률 = (기준값 − 실적) ÷ (기준값 − 목표값))`, row };
+          return { error: `'${name}'은(는) 낮을수록 좋은 지표라 시작값이 반드시 필요합니다. (달성률 = (시작값 − 실적) ÷ (시작값 − 목표값))`, row };
         }
-        if (useAnnual && Number(baselineRaw) === Number(targetRaw)) {
-          return { error: `'${name}'의 기준값과 목표값이 같아 달성률을 계산할 수 없습니다.`, row };
+        if (targetRaw !== "" && Number(baselineRaw) === Number(targetRaw)) {
+          return { error: `'${name}'의 시작값과 목표값이 같아 달성률을 계산할 수 없습니다.`, row };
         }
       }
     }
@@ -949,34 +1230,54 @@ function collectMetrics() {
       payload: {
         metric_name: name,
         metric_type: type,
-        // 정성형 지표는 화면에서 감춘 기준값·단위가 그대로 저장되지 않도록 비운다
-        unit: isNumeric ? (row.querySelector(".m-unit").value.trim() || null) : null,
+        // 정성형 지표는 화면에서 감춘 시작값·단위가 그대로 저장되지 않도록 비운다
+        unit: isNumeric ? (unit || null) : null,
         baseline_value: (isNumeric && baselineRaw !== "") ? Number(baselineRaw) : null,
-        target_value: (isNumeric && useAnnual && targetRaw !== "") ? Number(targetRaw) : null,
+        target_value: (isNumeric && targetRaw !== "") ? Number(targetRaw) : null,
         period_type: row.querySelector(".m-period").value,
         accumulation: row.querySelector(".m-accum").value
       },
-      periodTargets: (isNumeric && usePeriod) ? periodTargets : []
+      periodTargets: isNumeric ? periodTargets : []
     });
   }
   return { metrics: collected };
 }
 
-async function saveGoal(mode) {
+// 목표 본문 + (선택적으로) 지표를 저장한다.
+//  opts.silent  : 성공해도 화면을 옮기지 않는다 (자동 저장·단계 이동)
+//  opts.metrics : 지표까지 저장할지
+//  opts.submit  : 제출 상태로 넘길지
+async function saveAll(opts) {
+  opts = opts || {};
+  if (SAVING) return false;
+  SAVING = true;
+  if (opts.silent) setSaveState("saving");
+  try {
+    return await doSave(opts);
+  } finally {
+    SAVING = false;
+  }
+}
+
+async function doSave(opts) {
   document.getElementById("error-msg").classList.add("hidden");
   const strategy = document.getElementById("strategy_name").value.trim();
-  if (!strategy) { showError("전략(목표)을 입력해주세요."); return; }
+  if (!strategy) { showError("전략(목표) 이름을 입력해주세요."); setSaveState(""); return false; }
 
   const buId = document.getElementById("business_unit_id").value || null;
   if (isBuStaff(PROFILE) && !buId) {
     showError("배정된 사업부가 없습니다. 지주사 담당자에게 사업부 배정을 요청해주세요.");
-    return;
+    setSaveState(""); return false;
   }
 
-  // 저장을 시작하기 전에 지표를 모두 검증한다
-  const collectResult = collectMetrics();
-  if (collectResult.error) { showError(collectResult.error, collectResult.row); return; }
-  const metrics = collectResult.metrics;
+  // SMART 칸은 선택이므로 비어 있어도 제출을 막지 않는다.
+  // 빠진 칸은 제출 버튼 옆에 늘 적어두므로(updateSubmitHint) 여기서 다시 확인창을 띄우지 않는다.
+  let metrics = null;
+  if (opts.metrics || opts.submit) {
+    const r = collectMetrics();
+    if (r.error) { showError(r.error, r.row); setSaveState(""); return false; }
+    metrics = r.metrics;
+  }
 
   const payload = {
     company_id: GOAL_COMPANY_ID,
@@ -990,34 +1291,57 @@ async function saveGoal(mode) {
     timebound_text: document.getElementById("timebound_text").value,
     follow_up_action: document.getElementById("follow_up_action").value,
     remarks: document.getElementById("remarks").value,
-    status: mode === "submit" ? submitTargetStatus() : "draft",
     created_by: PROFILE.id
   };
-  if (GOAL_ID && mode !== "submit") delete payload.status; // 수정 저장 시에는 진행 중인 결재 상태를 건드리지 않는다
+  if (opts.submit) payload.status = submitTargetStatus();
+  else if (!GOAL_ID) payload.status = "draft"; // 새 목표는 작성 중으로 시작
+  // 기존 목표를 그냥 저장할 때는 진행 중인 결재 상태를 건드리지 않는다
 
   let goalId = GOAL_ID;
   if (goalId) {
     delete payload.created_by; // 수정 시 최초 작성자는 그대로 유지
     payload.updated_at = new Date().toISOString();
     const { error } = await sb.from("goals").update(payload).eq("id", goalId);
-    if (error) { showError("저장 실패: " + error.message); return; }
+    if (error) { showError("저장 실패: " + error.message); setSaveState(""); return false; }
   } else {
     const { data, error } = await sb.from("goals").insert(payload).select().single();
-    if (error) { showError("저장 실패: " + error.message); return; }
+    if (error) { showError("저장 실패: " + error.message); setSaveState(""); return false; }
     goalId = data.id;
     // 이후 단계에서 오류가 나 다시 저장하더라도 목표가 중복 생성되지 않도록 작성 모드를 수정 모드로 전환한다
     GOAL_ID = goalId;
     history.replaceState(null, "", "goal-form.html?id=" + goalId);
   }
 
-  // ---- 지표 저장 ----
-  // 지표를 통째로 지웠다 다시 만들면 그 지표에 입력된 실적(progress_entries)까지 함께 삭제되므로,
-  // 화면에서 실제로 제거된 지표만 지우고 나머지는 id를 유지한 채 수정한다.
+  if (metrics) {
+    const ok = await saveMetrics(goalId, metrics);
+    if (!ok) { setSaveState(""); return false; }
+  }
+
+  if (opts.submit) {
+    await sb.from("goal_reviews").insert({
+      goal_id: goalId, action: "submit", reviewer_id: PROFILE.id,
+      comment: isCompanyStaff(PROFILE) ? "계열사 담당자 작성 후 지주사 제출" : null
+    });
+    DIRTY = false;
+    window.location.href = "goal-detail.html?id=" + goalId;
+    return true;
+  }
+
+  DIRTY = false;
+  setSaveState("saved");
+  setTimeout(() => { if (!DIRTY) setSaveState(""); }, 2500);
+  return true;
+}
+
+// ---- 지표 저장 ----
+// 지표를 통째로 지웠다 다시 만들면 그 지표에 입력된 실적(progress_entries)까지 함께 삭제되므로,
+// 화면에서 실제로 제거된 지표만 지우고 나머지는 id를 유지한 채 수정한다.
+async function saveMetrics(goalId, metrics) {
   const keepIds = metrics.filter(m => m.id).map(m => m.id);
   const removedIds = LOADED_METRIC_IDS.filter(id => !keepIds.includes(id));
   if (removedIds.length) {
     const { error: delErr } = await sb.from("goal_metrics").delete().in("id", removedIds);
-    if (delErr) { showError("삭제된 지표 정리 실패: " + delErr.message); return; }
+    if (delErr) { showError("삭제된 지표 정리 실패: " + delErr.message); return false; }
   }
 
   // 기준정보에 없는 지표명은 여기서 자동 등록한다. 이렇게 해야 다음 해에 같은 지표로 이어 쓸 수 있다.
@@ -1036,13 +1360,13 @@ async function saveGoal(mode) {
     }).select("id,name,metric_type,unit,default_period_type,accumulation").single();
     if (defErr) {
       showError(`'${m.payload.metric_name}' 지표를 기준정보에 등록하지 못했습니다: ` + defErr.message, m.rowEl);
-      return;
+      return false;
     }
     m.kpiDefId = newDef.id;
     KPI_DEFS.push(newDef);
   }
 
-  // [속성 수정]으로 유형·단위를 손댄 경우 기준정보에도 반영해, 내년에 다시 입력하지 않게 한다
+  // [속성 수정]으로 방향·단위를 손댄 경우 기준정보에도 반영해, 내년에 다시 입력하지 않게 한다
   for (const m of metrics) {
     if (m.rowEl.dataset.editAttrs !== "1" || !m.kpiDefId) continue;
     const def = KPI_DEFS.find(d => d.id === m.kpiDefId);
@@ -1068,11 +1392,11 @@ async function saveGoal(mode) {
     let metricId = m.id;
     if (metricId) {
       const { error } = await sb.from("goal_metrics").update(m.payload).eq("id", metricId);
-      if (error) { showError(`'${m.payload.metric_name}' 지표 저장 실패: ` + error.message, m.rowEl); return; }
+      if (error) { showError(`'${m.payload.metric_name}' 지표 저장 실패: ` + error.message, m.rowEl); return false; }
     } else {
       const { data, error } = await sb.from("goal_metrics")
         .insert(Object.assign({ goal_id: goalId }, m.payload)).select("id").single();
-      if (error) { showError(`'${m.payload.metric_name}' 지표 저장 실패: ` + error.message, m.rowEl); return; }
+      if (error) { showError(`'${m.payload.metric_name}' 지표 저장 실패: ` + error.message, m.rowEl); return false; }
       metricId = data.id;
       m.rowEl.dataset.id = metricId; // 재저장 시 같은 지표가 또 생기지 않도록 기록
       m.id = metricId;
@@ -1080,25 +1404,17 @@ async function saveGoal(mode) {
 
     // 기간별 목표값은 이 지표에 딸린 값이라 전체 교체해도 실적에는 영향이 없다
     const { error: ptDelErr } = await sb.from("goal_period_targets").delete().eq("goal_metric_id", metricId);
-    if (ptDelErr) { showError("기간별 목표값 정리 실패: " + ptDelErr.message, m.rowEl); return; }
+    if (ptDelErr) { showError("기간별 목표값 정리 실패: " + ptDelErr.message, m.rowEl); return false; }
     if (m.periodTargets.length) {
       const { error: ptErr } = await sb.from("goal_period_targets").insert(
         m.periodTargets.map(p => ({ goal_metric_id: metricId, period: p.period, target_value: Number(p.target_value) }))
       );
-      if (ptErr) { showError("기간별 목표값 저장 실패: " + ptErr.message, m.rowEl); return; }
+      if (ptErr) { showError("기간별 목표값 저장 실패: " + ptErr.message, m.rowEl); return false; }
     }
   }
 
-  if (mode === "submit") {
-    await sb.from("goal_reviews").insert({
-      goal_id: goalId, action: "submit", reviewer_id: PROFILE.id,
-      comment: isCompanyStaff(PROFILE) ? "계열사 담당자 작성 후 지주사 제출" : null
-    });
-  }
-
   LOADED_METRIC_IDS = metrics.map(m => m.id).filter(Boolean); // 저장된 상태를 기준으로 갱신
-  DIRTY = false; // 저장이 끝났으므로 이탈 경고를 끈다
-  window.location.href = "goal-detail.html?id=" + goalId;
+  return true;
 }
 </script>
 </body>
