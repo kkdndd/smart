@@ -61,6 +61,7 @@
 <script src="js/nav.js"></script>
 <script>
 let PROFILE, YEAR = getSelectedYear(), ALL_GOALS = [], SELECTED_GOAL_ID = null, MODE = "now";
+let PARAM_GOAL_READY = false;   // 주소의 ?goal= 로 목표를 잡아냈는지
 let NOW_ROWS = [];   // 이번 기간에 입력해야 할 (목표, 지표, 기간) 목록
 // 목표 목록에 KPI 지표명을 함께 보여주기 위한 캐시 (goal_id → "지표A / 지표B")
 let GOAL_METRIC_NAMES = {};
@@ -91,8 +92,13 @@ function companyOrderIndex(name) {
   document.getElementById("goal-filter").addEventListener("input", renderGoalList);
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => switchMode(t.dataset.mode)));
 
-  // 홈에서 "마감 지난 실적" 카드를 눌러 들어오면 그 칸들만 먼저 보여준다
-  if (params.get("goal")) switchMode("year");
+  // 목표 상세·대시보드에서 "진행실적 입력"을 눌러 들어오면 그 목표를 바로 펼쳐 보여준다
+  if (params.get("goal")) {
+    switchMode("year");
+    // renderGoalList()는 이미 고른 목표가 있으면 건드리지 않으므로,
+    // 입력표와 SMART 요약은 여기서 한 번 그려준다
+    if (PARAM_GOAL_READY) selectGoal(SELECTED_GOAL_ID, true);
+  }
 })();
 
 function switchMode(mode) {
@@ -100,14 +106,7 @@ function switchMode(mode) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.mode === mode));
   document.getElementById("now-root").hidden = (mode !== "now");
   document.getElementById("year-root").hidden = (mode !== "year");
-  if (mode === "year" && !SELECTED_GOAL_ID) {
-    const preselect = params.get("goal");
-    if (preselect && ALL_GOALS.some(g => g.id === preselect)) {
-      focusPickerOn(preselect);          // 들어온 목표가 속한 회사·사업부 칸을 맞춰둔다
-      selectGoal(preselect, true);
-    }
-    renderGoalList();
-  }
+  if (mode === "year") renderGoalList();
 }
 
 function setSaveState(kind, text) {
@@ -161,7 +160,40 @@ async function loadGoalOptions() {
     (metrics || []).forEach(m => { (byGoal[m.goal_id] = byGoal[m.goal_id] || []).push(m); });
     ALL_GOALS.forEach(g => { GOAL_METRIC_NAMES[g.id] = goalMetricNames(g, byGoal[g.id]); });
   }
+  PARAM_GOAL_READY = await applyGoalParam();  // 목록을 **처음 그리기 전에** 주소의 목표를 맞춰둔다 (아래 설명)
   renderGoalList();
+}
+
+// 주소에 ?goal=... 로 들어온 목표를 선택 상태로 맞춘다.
+//
+// 반드시 목록을 처음 그리기 **전에** 호출해야 한다.
+// renderGoalList()는 "고른 목표가 없으면 첫 번째 목표를 고른다"로 동작하므로,
+// 먼저 그려버리면 엉뚱한 목표(첫 회사·첫 사업부의 1번)가 선택되고,
+// 그 뒤로는 "이미 고른 게 있다"는 이유로 주소의 목표가 조용히 무시된다.
+// (실제로 '신성장 2번'을 눌렀는데 '사업부 미지정 1번'이 열리던 버그)
+async function applyGoalParam() {
+  const wanted = params.get("goal");
+  if (!wanted) return false;
+
+  const g = ALL_GOALS.find(x => x.id === wanted);
+  if (g) {
+    PICK_COMPANY = g.company_id;
+    PICK_BU = g.business_unit_id || "none";
+    SELECTED_GOAL_ID = wanted;
+    return true;
+  }
+
+  // 목록에 없다 — 사이드바 연도가 그 목표의 연도와 다른 경우가 대부분이다.
+  // 목표 상세에서 넘어오는 주소에는 연도가 없으므로 여기서 맞춰준다.
+  const { data: other } = await sb.from("goals").select("year, strategy_name").eq("id", wanted).maybeSingle();
+  if (other && other.year !== YEAR) {
+    setSelectedYear(other.year);
+    toast(`${other.year}년 목표라서 연도를 ${other.year}년으로 바꿨습니다.`, "ok");
+    location.reload();
+    return false;
+  }
+  toastError("그 목표를 이 화면에서 열 수 없습니다. 목록에서 직접 골라주세요.");
+  return false;
 }
 
 // ---- 회사 › 사업부 › 목표 세 칸 선택기 ----
@@ -237,14 +269,6 @@ function renderGoalList() {
   document.querySelectorAll("#list-goal .goal-opt").forEach(el => el.addEventListener("click", () => {
     selectGoal(el.dataset.id);
   }));
-}
-
-// 특정 목표로 바로 들어왔을 때(현황의 '실적 미입력' 카드 등) 그 목표가 속한 칸을 맞춰둔다
-function focusPickerOn(goalId) {
-  const g = ALL_GOALS.find(x => x.id === goalId);
-  if (!g) return;
-  PICK_COMPANY = g.company_id;
-  PICK_BU = g.business_unit_id || "none";
 }
 
 // ============================================================
