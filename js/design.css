@@ -366,6 +366,50 @@ body.has-sidebar {
 .smart-toggle:hover > span { text-decoration: underline; }
 .smart-toggle.open .chev { transform: rotate(90deg); color: var(--accent); }
 
+/* ---- 실적 입력 한 줄 ('이번 기간 입력' 탭) ----
+   칸을 벗어나면 자동 저장되지만, 눌러서 확인받고 싶은 사람을 위해 항목마다 저장 단추를 둔다.
+   아직 저장 전이면 테두리를 물들여, 어느 항목이 남았는지 눈으로 훑을 수 있게 한다. */
+.now-row .row-save:disabled { opacity: .6; cursor: default; }
+.now-row.row-dirty { border-color: var(--amber-line); background: var(--amber-soft); }
+.now-row.row-dirty .row-save {
+  background: var(--amber); border-color: var(--amber); color: var(--text-on-accent);
+}
+
+/* ---- 되돌아온 이유 (목표 작성 화면 맨 위) ----
+   검토자가 수정요청·반려로 돌려보낸 사유. 단계 패널 바깥에 두어 1·2·3단계 어디서나 보인다.
+   고쳐야 할 내용을 보면서 고칠 수 있어야 하므로, 접지 않고 늘 펼쳐 둔다. */
+.revision-note {
+  margin-bottom:16px; padding:12px 16px;
+  background: var(--amber-soft); border: 1px solid var(--amber-line);
+  border-radius: var(--r-md);
+}
+.revision-note.is-reject { background: var(--red-soft); border-color: var(--red-line); }
+
+.revision-note .rn-head {
+  display: flex; align-items: center; flex-wrap: wrap; gap:8px;
+  margin-bottom:8px; font-size: 11.5px; color: var(--text-tertiary);
+}
+.revision-note .rn-tag {
+  padding:0 8px; border-radius: var(--r-pill);
+  font-size: 11px; font-weight: 700;
+  background: var(--amber); color: var(--text-on-accent);
+}
+.revision-note.is-reject .rn-tag { background: var(--red); }
+.revision-note .rn-who { font-weight: 600; color: var(--text-secondary); }
+.revision-note .rn-metric {
+  padding:0 8px; border-radius: var(--r-sm);
+  font-size: 11px; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);
+}
+
+.revision-note .rn-body { font-size: 13px; line-height: 1.7; color: var(--amber-ink); }
+.revision-note.is-reject .rn-body { color: var(--red-ink); }
+.revision-note .rn-body .text-lines li::marker { color: currentColor; }
+.revision-note .rn-empty { color: var(--text-tertiary); }
+
+.revision-note .rn-more { margin-top:8px; font-size: 11.5px; color: var(--text-tertiary); }
+.revision-note .rn-more a { color: var(--accent); text-decoration: underline; }
+
 /* ---- 목표 상세 화면 ---- */
 
 /* 길잡이(breadcrumb). '← 목록으로' 한 줄만으로는 어느 회사·사업부의 목표인지 알 수 없다. */

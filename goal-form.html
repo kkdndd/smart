@@ -23,6 +23,11 @@
   <div id="carryover-root"></div>
   <div id="intro-root"></div>
 
+  <!-- 수정요청·반려를 받고 되돌아온 목표라면 무엇을 고쳐야 하는지 여기에 띄운다.
+       단계 패널 바깥에 두어 1·2·3단계 어디서나 보이게 한다 — 고칠 내용이 2단계에 있는데
+       1단계에서만 보이면 받아적고 넘어가야 한다. -->
+  <div id="revision-root"></div>
+
   <!-- 단계 표시 -->
   <div class="stepper" id="stepper">
     <button type="button" class="step active" data-step="1">
@@ -453,6 +458,52 @@ async function loadGoal(id) {
     periodTargetsByMetric[m.id]
   ));
   if (metrics && metrics.length === 0) addMetricRow();
+
+  await loadRevisionNote(id);
+}
+
+// ---- 되돌아온 이유 ----
+// 검토자가 '수정요청'(계열사)이나 '반려'(지주사)를 누르면 목표가 작성자에게 돌아온다.
+// 그런데 작성 화면에는 그 사유가 어디에도 없어서, 목록이나 목표 상세를 따로 열어
+// 읽고 외운 다음 돌아와야 했다. 고쳐야 할 내용을 보면서 고칠 수 있게 화면 맨 위에 붙인다.
+//
+// 가장 마지막 기록만 본다. 그 뒤에 다시 제출했다면 이미 처리된 요청이므로 띄우지 않는다.
+async function loadRevisionNote(goalId) {
+  const root = document.getElementById("revision-root");
+  root.innerHTML = "";
+  if (!goalId) return;
+
+  const { data } = await sb.from("goal_reviews")
+    .select("action, comment, created_at, reviewer:reviewer_id(name,email)")
+    .eq("goal_id", goalId).order("created_at", { ascending: false }).limit(20);
+  const rows = data || [];
+  const last = rows[0];
+  if (!last || (last.action !== "request_revision" && last.action !== "reject")) return;
+
+  // 검토자가 지표를 골라 보냈으면 사유 앞에 "[지표명] "이 붙어 있다. 따로 떼어 눈에 띄게 둔다.
+  const m = String(last.comment || "").match(/^\s*\[([^\]]+)\]\s*([\s\S]*)$/);
+  const metricName = m ? m[1] : "";
+  const body = (m ? m[2] : (last.comment || "")).trim();
+
+  const isReject = last.action === "reject";
+  const who = last.reviewer ? (last.reviewer.name || last.reviewer.email) : "검토자";
+  const when = new Date(last.created_at).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+  const past = rows.filter(r => r.action === "request_revision" || r.action === "reject").length;
+
+  root.innerHTML = `
+    <div class="revision-note ${isReject ? "is-reject" : ""}">
+      <p class="rn-head">
+        <span class="rn-tag">${isReject ? "반려" : "수정요청"}</span>
+        <span class="rn-who">${escapeHtml(who)}</span>
+        <span class="rn-when">${when}</span>
+        ${metricName ? `<span class="rn-metric">${escapeHtml(metricName)}</span>` : ""}
+      </p>
+      ${body
+        ? `<div class="rn-body">${textBlockHtml(body)}</div>`
+        : `<p class="rn-body rn-empty">사유가 적혀 있지 않습니다. 검토자에게 직접 확인해주세요.</p>`}
+      ${past > 1 ? `<p class="rn-more">이번이 ${past}번째입니다. 지난 의견은
+        <a href="goal-detail.html?id=${goalId}">목표 상세</a>의 '검토 · 합의 이력'에서 볼 수 있습니다.</p>` : ""}
+    </div>`;
 }
 
 // ---- KPI 기준정보 ----
