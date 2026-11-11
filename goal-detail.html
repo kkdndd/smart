@@ -358,7 +358,15 @@ async function loadMetrics() {
     }
     return `<div class="border border-slate-200 rounded p-3">
       <div class="flex items-center justify-between mb-1">
-        <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${METRIC_TYPE_LABEL[m.metric_type]} · ${PERIOD_TYPE_LABEL[m.period_type] || m.period_type} · ${ACCUMULATION_SHORT[accumulationOf(m)]})</span></span>
+        <span class="font-medium text-sm text-slate-800">${escapeHtml(m.metric_name)} <span class="text-xs text-slate-400">(${
+          // 집계 방식(발생분/누적/평균)은 숫자를 더하는 지표에서만 쓴다.
+          // 정성·마일스톤 지표에 '발생분'이라고 적어두면 더하는 값인 줄 알게 된다.
+          [METRIC_TYPE_LABEL[m.metric_type],
+           PERIOD_TYPE_LABEL[m.period_type] || m.period_type,
+           (m.metric_type === "milestone" || m.metric_type === "qualitative")
+             ? null : ACCUMULATION_SHORT[accumulationOf(m)]
+          ].filter(Boolean).join(" · ")
+        })</span></span>
         <span class="text-right">
           <span class="px-2 py-0.5 rounded-full text-xs ${rateColorClass(rate)}">${rate===null?'실적없음':rate+'%'}</span>
           ${pace ? `<span class="block text-[10px] text-slate-400 mt-0.5">${pace}</span>` : ''}
@@ -446,17 +454,27 @@ function milestoneTimelineHtml(m, entries) {
 
 function chartBlockHtml(m) {
   if (m.metric_type === "milestone") return ""; // 별도 타임라인으로 렌더링
-  return `<div class="rounded border border-slate-100 p-2 mb-2">
-    <div class="flex items-center justify-between mb-1">
-      <span class="text-[11px] text-slate-400" id="chart-note-${m.id}"></span>
+
+  // 정성 지표(진척도 %)에는 누적이 없다.
+  // 진척도는 "지금 몇 %까지 왔나"를 매 기간 다시 적는 값이라, 더하면 200%·300%가 나와
+  // 숫자가 오히려 헷갈린다. 그래서 누적/기간별 토글을 아예 두지 않고
+  // 매 기간 보고한 값을 그대로 꺾은선으로만 보여준다.
+  const isQualitative = m.metric_type === "qualitative";
+  const tabs = isQualitative ? "" : `
       <div class="flex gap-1">
         <button type="button" onclick="renderMetricChart('${m.id}','cumulative')" data-mode="cumulative" data-metric="${m.id}"
           class="chart-tab text-[11px] px-2 py-0.5 rounded border border-slate-300">누적</button>
         <button type="button" onclick="renderMetricChart('${m.id}','monthly')" data-mode="monthly" data-metric="${m.id}"
           class="chart-tab text-[11px] px-2 py-0.5 rounded border border-slate-300">기간별</button>
-      </div>
+      </div>`;
+
+  return `<div class="rounded border border-slate-100 p-2 mb-2">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[11px] text-slate-400" id="chart-note-${m.id}"></span>
+      ${tabs}
     </div>
     <div style="height:180px; position:relative"><canvas id="chart-${m.id}"></canvas></div>
+    <p class="text-[11px] mt-1 hidden" id="chart-empty-${m.id}" style="color:var(--text-tertiary)"></p>
   </div>`;
 }
 
@@ -549,9 +567,20 @@ function renderMetricChart(metricId, mode) {
 
   const noteEl = document.getElementById("chart-note-" + metricId);
   if (noteEl) {
-    noteEl.textContent = !d.hasAnyTarget
-      ? "목표값을 입력하면 목표선이 표시됩니다"
-      : (mode === "cumulative" ? `누적 · ${d.targetNote}` : `기간별 · ${d.targetNote}`);
+    noteEl.textContent = (d.metricType === "qualitative")
+      // 정성 지표는 목표선이라는 게 없다. 목표값 안내를 띄우면 안 넣은 줄 알고 찾아다니게 된다.
+      ? "기간마다 보고한 진척도입니다 (100%가 완료)"
+      : !d.hasAnyTarget
+        ? "목표값을 입력하면 목표선이 표시됩니다"
+        : (mode === "cumulative" ? `누적 · ${d.targetNote}` : `기간별 · ${d.targetNote}`);
+  }
+
+  // 아직 한 칸도 입력하지 않았으면 빈 격자만 남아 고장처럼 보인다. 한 줄로 알려준다.
+  const emptyEl = document.getElementById("chart-empty-" + metricId);
+  if (emptyEl) {
+    const none = !(d.actuals || []).some(v => v !== null && v !== undefined);
+    emptyEl.textContent = none ? "아직 입력된 실적이 없습니다. 실적을 넣으면 여기에 그려집니다." : "";
+    emptyEl.classList.toggle("hidden", !none);
   }
 
   if (CHART_INSTANCES[metricId]) CHART_INSTANCES[metricId].destroy();
@@ -565,10 +594,20 @@ function renderMetricChart(metricId, mode) {
 
   let config;
   if (d.metricType === "qualitative") {
+    // 기간마다 보고한 진척도를 그대로 그린다. 더하지 않는다.
+    // 축을 0~100으로 고정해, 값이 몇 개 없어도 "어디까지 왔나"가 한눈에 읽히게 한다.
+    const pct = (v) => (v === null || v === undefined) ? "-" : Number(v) + "%";
     config = {
       type: "line",
-      data: { labels, datasets: [{ label: "진척도(%)", data: d.actuals, borderColor: good, backgroundColor: good, tension: .3, spanGaps: false }] },
-      options: baseOptions(fmt, { suggestedMin: 0, suggestedMax: 100 })
+      data: { labels, datasets: [{
+        label: "진척도(%)", data: d.actuals,
+        borderColor: good, backgroundColor: good,
+        tension: .3, spanGaps: false, pointRadius: 4, pointHoverRadius: 6
+      }] },
+      options: baseOptions(pct, {
+        min: 0, max: 100,
+        ticks: { font: { size: 10 }, stepSize: 20, callback: (v) => v + "%" }
+      })
     };
   } else if (mode === "cumulative") {
     config = {
