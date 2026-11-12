@@ -335,18 +335,11 @@ async function loadMetrics() {
     summary.filled += periodsOfMetric.filter(p => hasEntry[p]).length;
     summary.overdue += overduePeriods(m.period_type, GOAL.year, p => !!hasEntry[p]).length;
     if (isNumeric && (m.target_value === null || m.target_value === undefined) && !metricsWithPeriodTargets.has(m.id)) summary.noTarget++;
-    const history = entriesAsc.map(p => {
-      const effTarget = periodTargetsByKey[m.id + "|" + p.period] ?? m.target_value;
-      const targetDisplay = (isNumeric && effTarget !== null && effTarget !== undefined) ? ` <span class="text-slate-400 font-normal">/ 목표 ${effTarget}${m.unit||''}</span>` : '';
-      return `
-      <div class="px-3 py-1.5 border-b border-slate-100 last:border-b-0">
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-slate-500">${p.period}</span>
-          <span class="text-sm font-medium text-slate-800">${p.milestone_achieved!==null ? (p.milestone_achieved?'완료':'미완료') : (p.actual_value ?? '-')}${targetDisplay}</span>
-        </div>
-        ${p.note ? `<p class="text-xs text-slate-500 mt-0.5">${nl2br(p.note)}</p>` : ''}
-      </div>`;
-    }).join("");
+    const history = periodTableHtml(m, entriesAsc, ptMap, { isNumeric, isMilestone: m.metric_type === "milestone" });
+    const filledCount = entriesAsc.filter(e =>
+      (e.actual_value !== null && e.actual_value !== undefined) ||
+      (e.milestone_achieved !== null && e.milestone_achieved !== undefined)).length;
+    const periodCountOfMetric = periodsForYear(GOAL.year, m.period_type).length;
     let targetHint;
     if (m.metric_type === 'milestone') targetHint = '완료 여부로 관리되는 정성 지표입니다';
     else if (m.metric_type === 'qualitative') targetHint = '담당자가 매 기간 진척도(%)를 자가평가하는 정성 지표입니다';
@@ -377,8 +370,10 @@ async function loadMetrics() {
       ${prevYearHtml(m, prevSummary)}
       ${m.metric_type === "milestone" ? milestoneTimelineHtml(m, entriesAsc) : chartBlockHtml(m)}
       <details class="mt-2">
-        <summary class="text-xs text-slate-500 cursor-pointer">기간별 입력 내역</summary>
-        <div class="rounded border border-slate-100 divide-y divide-slate-100 mt-1">${history || '<p class="text-xs text-slate-400 px-3 py-2">입력된 실적이 없습니다</p>'}</div>
+        <summary class="text-xs cursor-pointer" style="color:var(--text-secondary)">기간별 목표 · 실적
+          <span style="color:var(--text-tertiary)">(${periodCountOfMetric}기간 중 ${filledCount}기간 입력됨)</span>
+        </summary>
+        <div class="mt-2">${history}</div>
       </details>
     </div>`;
   }).join("");
@@ -391,6 +386,93 @@ async function loadMetrics() {
     CHART_DATA[m.id] = buildChartData(m, entriesAsc, periodTargetsByKey);
     renderMetricChart(m.id, "cumulative");
   });
+}
+
+// ---- 기간별 목표 · 실적 표 ----
+// 예전에는 '입력된 실적'만 줄로 만들었다. 그래서 계획을 다 세워두고 실적을 아직 안 넣은
+// 목표를 검토하면 "입력된 실적이 없습니다" 한 줄만 보였고, 월별로 목표를 얼마로 잡았는지는
+// 실적 입력 화면까지 가야 알 수 있었다. 검토자에게 가장 필요한 숫자가 거기에 있는데도.
+//
+// 그래서 **그 해의 모든 기간을 줄로 깔고** 목표를 함께 보여준다. 실적은 있으면 채워진다.
+// 목표값이 기간마다 따로 설정됐는지, 연간 목표를 나눈 참고값인지도 구분해 적는다 —
+// 검토자가 "이 월 목표는 담당자가 정한 건가, 시스템이 나눈 건가"를 물을 수 있어야 한다.
+function periodTableHtml(m, entriesAsc, ptMap, kind) {
+  const periods = periodsForYear(GOAL.year, m.period_type);
+  const unit = m.unit ? " " + m.unit : "";
+  const byPeriod = {};
+  (entriesAsc || []).forEach(e => { byPeriod[e.period] = e; });
+  const num = v => Number(v).toLocaleString();
+
+  // 마일스톤은 목표값이 없다. 완료 여부와 메모만 본다.
+  if (kind.isMilestone) {
+    const rows = periods.map(p => {
+      const e = byPeriod[p];
+      const v = e && e.milestone_achieved;
+      return `<tr>
+        <td class="whitespace-nowrap">${periodFullLabel(p)}</td>
+        <td>${v === true ? '<span class="ink-good">완료</span>'
+                : v === false ? '<span class="ink-risk">미완료</span>'
+                : '<span style="color:var(--text-tertiary)">-</span>'}</td>
+        <td>${e && e.note ? escapeHtml(e.note) : ""}</td>
+      </tr>`;
+    }).join("");
+    return `<table class="metric-table">
+      <thead><tr><th>기간</th><th>상태</th><th>메모</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  }
+
+  const showTarget = kind.isNumeric;   // 정성(진척도)은 목표값이라는 게 없다
+  const rows = periods.map((p, i) => {
+    const e = byPeriod[p];
+    const actual = e && e.actual_value !== null && e.actual_value !== undefined ? Number(e.actual_value) : null;
+
+    const setT = ptMap[p];
+    const isSet = setT !== undefined && setT !== null && setT !== "";
+    const refT = referencePeriodTarget(m, i, periods.length);
+    const target = isSet ? Number(setT) : refT;
+
+    const rate = showTarget ? calcAchievementRate(m, actual, null, target) : actual;
+    return `<tr>
+      <td class="whitespace-nowrap">${periodFullLabel(p)}</td>
+      ${showTarget ? `<td class="num">${target === null || target === undefined
+        ? '<span style="color:var(--text-tertiary)">-</span>'
+        : `${num(target)}${escapeHtml(unit)}${isSet ? "" : ' <span style="color:var(--text-tertiary)">(참고)</span>'}`}</td>` : ""}
+      <td class="num">${actual === null
+        ? '<span style="color:var(--text-tertiary)">미입력</span>'
+        : `<b>${num(actual)}</b>${escapeHtml(showTarget ? unit : " %")}`}</td>
+      <td class="num">${rate === null || rate === undefined
+        ? '<span style="color:var(--text-tertiary)">-</span>'
+        : `<span class="${rateColorClass(rate)}" style="padding:0 6px;border-radius:var(--r-pill)">${rate}%</span>`}</td>
+      <td>${e && e.note ? escapeHtml(e.note) : ""}</td>
+    </tr>`;
+  }).join("");
+
+  // 맨 아래 한 줄로 연간 기준을 적는다. 집계 방식에 따라 '합계'인지 '마지막 값'인지가 달라서,
+  // 그 말을 그대로 써줘야 월별 숫자를 더해보고 안 맞는다고 되묻는 일이 없다.
+  const acc = accumulationOf(m);
+  const accLabel = acc === "latest" ? "마지막 기간 기준" : acc === "average" ? "기간 평균" : "기간 합계";
+  const annualTargetVal = (m.target_value !== null && m.target_value !== undefined) ? Number(m.target_value) : null;
+  const rolledActual = aggregateValues((entriesAsc || []).map(e => e.actual_value), acc);
+  const overall = achievementRate(m, entriesAsc, ptMap, GOAL.year);
+
+  const foot = `<tr class="sum-row">
+    <td class="whitespace-nowrap">연간 <span style="color:var(--text-tertiary);font-weight:400">${accLabel}</span></td>
+    ${showTarget ? `<td class="num">${annualTargetVal === null
+      ? '<span style="color:var(--text-tertiary)">-</span>' : num(annualTargetVal) + escapeHtml(unit)}</td>` : ""}
+    <td class="num">${rolledActual === null
+      ? '<span style="color:var(--text-tertiary)">-</span>'
+      : num(rolledActual) + escapeHtml(showTarget ? unit : " %")}</td>
+    <td class="num">${overall === null
+      ? '<span style="color:var(--text-tertiary)">-</span>'
+      : `<span class="${rateColorClass(overall)}" style="padding:0 6px;border-radius:var(--r-pill)">${overall}%</span>`}</td>
+    <td></td>
+  </tr>`;
+
+  return `<table class="metric-table">
+    <thead><tr>
+      <th>기간</th>${showTarget ? "<th>목표</th>" : ""}<th>${showTarget ? "실적" : "진척도"}</th><th>달성률</th><th>메모</th>
+    </tr></thead>
+    <tbody>${rows}${foot}</tbody></table>`;
 }
 
 // 지표가 서너 개면 카드를 다 읽어야 전체 상태를 알 수 있었다.

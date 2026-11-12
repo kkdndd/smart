@@ -167,14 +167,15 @@ function metricTableHtml(goal) {
       : `<span style="color:var(--text-tertiary)">-</span>`;
 
     return `<tr>
-      <td>${escapeHtml(name)}</td>
+      <td>${periodToggleHtml(m, name)}</td>
       <td style="color:var(--text-secondary)">${escapeHtml((METRIC_TYPE_LABEL[m.metric_type] || "").split(" (")[0])}</td>
       <td style="color:var(--text-secondary)">${escapeHtml(ACCUMULATION_SHORT[accumulationOf(m)] || "")} · ${escapeHtml(PERIOD_TYPE_LABEL[m.period_type] || "")}</td>
       <td class="num">${fmt(m.baseline_value) || "-"}</td>
       <td class="num">${targetCell}</td>
       <td>${unitCell}</td>
       <td style="color:var(--text-secondary);font-size:11.5px">${prevCell}</td>
-    </tr>`;
+    </tr>
+    ${periodPlanRowHtml(m)}`;
   }).join("");
 
   return `<table class="metric-table">
@@ -184,6 +185,80 @@ function metricTableHtml(goal) {
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+// ---- 기간별 목표 배분 펼쳐보기 ----
+// 검토자가 가장 많이 묻는 것이 "연간 목표를 월별로 어떻게 쪼갰나"인데, 그 숫자는 목표 상세나
+// 실적 입력 화면에만 있었다. 합의·보완요청을 누르는 자리에서 바로 볼 수 있어야 판단이 한 화면에서 끝난다.
+// 검토는 실적이 쌓이기 전 단계라 실적 열은 두지 않는다. 배분과 합계만 본다.
+function periodToggleHtml(m, name) {
+  const quantitative = m.metric_type === "increasing" || m.metric_type === "decreasing";
+  if (!quantitative) return escapeHtml(name);
+  return `<button type="button" class="smart-toggle" id="pt-btn-${m.id}" aria-expanded="false"
+      aria-controls="pt-row-${m.id}" onclick="togglePeriodPlan(event,'${m.id}')"
+      title="기간별 목표 배분 펼치기">
+      <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6"/></svg>
+      <span>${escapeHtml(name)}</span>
+    </button>`;
+}
+
+function periodPlanRowHtml(m) {
+  const quantitative = m.metric_type === "increasing" || m.metric_type === "decreasing";
+  if (!quantitative) return "";
+
+  const ptMap = PERIOD_TARGETS[m.id] || {};
+  const periods = periodsForYear(YEAR, m.period_type);
+  const unit = m.unit || (m.kpi_definitions && m.kpi_definitions.unit) || "";
+  const acc = accumulationOf(m);
+  const accLabel = acc === "latest" ? "마지막 기간 기준" : acc === "average" ? "기간 평균" : "기간 합계";
+  const num = v => Number(v).toLocaleString();
+
+  const cells = periods.map((p, i) => {
+    const setT = ptMap[p];
+    const isSet = setT !== undefined && setT !== null && setT !== "";
+    const t = isSet ? Number(setT) : referencePeriodTarget(m, i, periods.length);
+    return `<div class="pp-cell">
+      <span class="pp-period">${periodDisplayLabel(p)}</span>
+      <span class="pp-val${isSet ? "" : " pp-ref"}">${t === null || t === undefined ? "-" : num(t)}</span>
+    </div>`;
+  }).join("");
+
+  const anySet = periods.some(p => {
+    const v = ptMap[p]; return v !== undefined && v !== null && v !== "";
+  });
+  const rolled = aggregateValues(periods.map((p, i) => {
+    const v = ptMap[p];
+    return (v !== undefined && v !== null && v !== "") ? Number(v) : referencePeriodTarget(m, i, periods.length);
+  }), acc);
+  const annual = (m.target_value !== null && m.target_value !== undefined) ? Number(m.target_value) : null;
+  const mismatch = (annual !== null && rolled !== null && Math.abs(rolled - annual) >= 0.001);
+
+  return `<tr class="pt-row" id="pt-row-${m.id}" hidden><td colspan="7">
+    <div class="pp-wrap">
+      <p class="pp-head">
+        기간별 목표 배분 <span>${escapeHtml(PERIOD_TYPE_LABEL[m.period_type] || "")} · ${periods.length}기간${unit ? " · 단위 " + escapeHtml(unit) : ""}</span>
+        ${anySet ? `<span class="pp-tag">담당자가 직접 설정</span>`
+                 : `<span class="pp-tag pp-tag-ref">연간 목표를 나눈 참고값 (저장된 값 아님)</span>`}
+      </p>
+      <div class="pp-grid">${cells}</div>
+      <p class="pp-foot ${mismatch ? "pp-bad" : ""}">
+        ${accLabel} <b>${rolled === null ? "-" : num(rolled)}</b>
+        &nbsp;·&nbsp; 연간 목표 <b>${annual === null ? "-" : num(annual)}</b>
+        ${mismatch ? " &nbsp;— 두 값이 다릅니다. 집계 방식이나 배분을 확인해주세요." : " — 일치합니다"}
+      </p>
+    </div>
+  </td></tr>`;
+}
+
+function togglePeriodPlan(e, metricId) {
+  e.stopPropagation();
+  const row = document.getElementById("pt-row-" + metricId);
+  const btn = document.getElementById("pt-btn-" + metricId);
+  if (!row || !btn) return;
+  const open = row.hidden;
+  row.hidden = !open;
+  btn.classList.toggle("open", open);
+  btn.setAttribute("aria-expanded", String(open));
 }
 
 // 합의를 막아야 하는 사유와, 막지는 않지만 짚어줄 사유를 나눈다
